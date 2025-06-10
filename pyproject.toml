@@ -1,0 +1,12 @@
+[project]
+name = "hc-rag"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "jupyter>=1.1.1",
+    "neo4j>=5.28.1",
+    "pandas>=2.3.0",
+    "pip>=25.1.1",
+]
