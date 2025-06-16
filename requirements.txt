@@ -1,3 +1,5 @@
 jupyter
-neo4j
-python-dotenv 
+neo4j>=5.14.1
+pandas>=2.1.4
+python-dotenv>=1.0.0
+requests>=2.31.0 
