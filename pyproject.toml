@@ -9,8 +9,10 @@ dependencies = [
     "neo4j>=5.28.1",
     "openai>=1.86.0",
     "pandas>=2.3.0",
+    "pdfplumber>=0.11.7",
     "pip>=25.1.1",
     "pydantic>=2.11.7",
+    "pypdf2>=3.0.1",
     "requests>=2.32.4",
     "sentence-transformers>=4.1.0",
 ]
