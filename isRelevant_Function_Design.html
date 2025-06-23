@@ -1,0 +1,297 @@
+<h1 id="isrelevant-function-design-specification">isRelevant Function
+Design Specification</h1>
+<h2 id="overview">Overview</h2>
+<p>The <code>isRelevant</code> function serves as a critical component
+in our RAG (Retrieval-Augmented Generation) system, designed to
+determine the relevance score of knowledge graph nodes in relation to
+user queries. This function enables intelligent node ranking and
+selection for context inclusion, optimizing the quality of information
+provided to the language model while respecting context window
+constraints.</p>
+<h2 id="function-purpose">Function Purpose</h2>
+<p>The primary objective of the <code>isRelevant</code> function is to
+quantify how relevant a specific node within the currently identified
+subgraph is to the user’s query. This relevance scoring enables the
+system to:</p>
+<ul>
+<li>Rank nodes by their importance to the query</li>
+<li>Select the most relevant nodes for RAG context inclusion</li>
+<li>Optimize context window utilization based on resource length and
+relevance scores</li>
+<li>Provide consistent and accurate relevance assessment across
+different query types and node varieties</li>
+</ul>
+<h2 id="function-signature">Function Signature</h2>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> isRelevant(</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>    query: QueryInput,</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    node: NodeInput,</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    scorer_type: ScorerType</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>) <span class="op">-&gt;</span> <span class="bu">float</span>:</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="co">&quot;&quot;&quot;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="co">    Calculate relevance score for a graph node relative to user query.</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="co">    </span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="co">    Returns: Relevance score (typically 0.0 to 1.0)</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="co">    &quot;&quot;&quot;</span></span></code></pre></div>
+<h2 id="input-components">Input Components</h2>
+<h3 id="query-input-components">Query Input Components</h3>
+<p>The query component encompasses all processed information about the
+user’s request:</p>
+<h4 id="query-text">1. Query Text</h4>
+<ul>
+<li><strong>Type</strong>: String</li>
+<li><strong>Description</strong>: Original, unprocessed text of the user
+query</li>
+<li><strong>Purpose</strong>: Provides raw semantic context for
+text-based scoring methods</li>
+</ul>
+<h4 id="query-embeddings">2. Query Embeddings</h4>
+<ul>
+<li><strong>Type</strong>: Vector (typically float array)</li>
+<li><strong>Description</strong>: Vector representation of the query
+text generated using embedding models</li>
+<li><strong>Purpose</strong>: Enables semantic similarity calculations
+between query and nodes</li>
+</ul>
+<h4 id="query-parsed-entities">3. Query Parsed Entities</h4>
+<ul>
+<li><p><strong>Type</strong>: Structured object/dictionary</p></li>
+<li><p><strong>Description</strong>: Named entities extracted from the
+query through NER, LLM parsing, or other extraction methods</p></li>
+<li><p><strong>Format Example</strong>:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode json"><code class="sourceCode json"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;product&quot;</span><span class="fu">:</span> <span class="fu">{</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    <span class="dt">&quot;features&quot;</span><span class="fu">:</span> <span class="ot">[</span><span class="st">&quot;red&quot;</span><span class="ot">,</span> <span class="st">&quot;lightweight&quot;</span><span class="ot">]</span><span class="fu">,</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>    <span class="dt">&quot;category&quot;</span><span class="fu">:</span> <span class="st">&quot;bikes&quot;</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">},</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;document&quot;</span><span class="fu">:</span> <span class="fu">{</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>    <span class="dt">&quot;type&quot;</span><span class="fu">:</span> <span class="st">&quot;manual&quot;</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">}</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div></li>
+<li><p><strong>Purpose</strong>: Enables precise entity matching between
+query requirements and node content</p></li>
+</ul>
+<h4 id="query-intentclass">4. Query Intent/Class</h4>
+<ul>
+<li><strong>Type</strong>: Enumerated label</li>
+<li><strong>Description</strong>: Classified intent or category of the
+user query</li>
+<li><strong>Example Values</strong>:
+<ul>
+<li><code>PRODUCT_SEARCH</code></li>
+<li><code>DOCUMENT_REQUEST</code></li>
+<li><code>TECHNICAL_SUPPORT</code></li>
+<li><code>COMPARISON_REQUEST</code></li>
+<li><code>SPECIFICATION_INQUIRY</code></li>
+</ul></li>
+<li><strong>Purpose</strong>: Guides scorer selection and metric
+weighting based on query type</li>
+</ul>
+<h3 id="node-input-components">Node Input Components</h3>
+<p>The node component contains all available information about a
+knowledge graph node:</p>
+<h4 id="node-textdatabase-entry">1. Node Text/Database Entry</h4>
+<ul>
+<li><strong>Type</strong>: String or structured data</li>
+<li><strong>Description</strong>: Original textual content or database
+record associated with the node</li>
+<li><strong>Variants</strong>:
+<ul>
+<li>Raw text for document nodes</li>
+<li>Structured database entries for product/category nodes</li>
+<li>Extracted table data for specification nodes</li>
+</ul></li>
+<li><strong>Purpose</strong>: Provides content for text-based analysis
+and LLM evaluation</li>
+</ul>
+<h4 id="node-embeddings">2. Node Embeddings</h4>
+<ul>
+<li><strong>Type</strong>: Vector (typically float array)</li>
+<li><strong>Description</strong>: Vector representation of the node’s
+content</li>
+<li><strong>Purpose</strong>: Enables semantic similarity calculations
+with query embeddings</li>
+</ul>
+<h4 id="node-graph-relations">3. Node Graph Relations</h4>
+<ul>
+<li><strong>Type</strong>: Graph structure data</li>
+<li><strong>Description</strong>: Information about the node’s position
+and connections within the knowledge graph</li>
+<li><strong>Components</strong>:
+<ul>
+<li>Incoming/outgoing relationships</li>
+<li>Relationship types and strengths</li>
+<li>Node centrality measures</li>
+<li>Connected node types and counts</li>
+</ul></li>
+<li><strong>Purpose</strong>: Enables graph-based relevance scoring
+through centrality and relationship analysis</li>
+</ul>
+<h3 id="scorer-selection">Scorer Selection</h3>
+<ul>
+<li><strong>Type</strong>: Enumerated type</li>
+<li><strong>Options</strong>: <code>COMPOSITE</code>,
+<code>PARALLEL</code>, <code>ROUTER</code></li>
+<li><strong>Description</strong>: Determines the scoring strategy and
+metric combination approach</li>
+</ul>
+<h2 id="scorer-types">Scorer Types</h2>
+<p>The system implements three distinct scorer types, each orchestrating
+the five core metrics differently:</p>
+<h3 id="composite-scorer">1. Composite Scorer</h3>
+<ul>
+<li><strong>Strategy</strong>: Weighted combination of all five
+metrics</li>
+<li><strong>Calculation</strong>:
+<code>relevance = Σ(weight_i × metric_i)</code></li>
+<li><strong>Characteristics</strong>:
+<ul>
+<li>All metrics contribute to final score</li>
+<li>Weights can be tuned based on domain requirements</li>
+<li>Provides balanced consideration of all relevance factors</li>
+<li>Suitable for general-purpose relevance assessment</li>
+</ul></li>
+</ul>
+<h3 id="parallel-scorer">2. Parallel Scorer</h3>
+<ul>
+<li><strong>Strategy</strong>: Maximum score across all five
+metrics</li>
+<li><strong>Calculation</strong>:
+<code>relevance = max(metric_1, metric_2, metric_3, metric_4, metric_5)</code></li>
+<li><strong>Characteristics</strong>:
+<ul>
+<li>Optimistic scoring approach</li>
+<li>Node needs to excel in only one dimension</li>
+<li>Useful when different nodes have distinct strengths</li>
+<li>Prevents good nodes from being penalized by weak dimensions</li>
+</ul></li>
+</ul>
+<h3 id="router-scorer">3. Router Scorer</h3>
+<ul>
+<li><strong>Strategy</strong>: Conditional metric selection based on
+query type and node characteristics</li>
+<li><strong>Calculation</strong>: Dynamic selection and combination of
+relevant metrics</li>
+<li><strong>Characteristics</strong>:
+<ul>
+<li>Adaptive scoring based on context</li>
+<li>Different metric combinations for different scenarios</li>
+<li>Most sophisticated but requires careful configuration</li>
+<li>Optimizes for query-specific relevance patterns</li>
+</ul></li>
+</ul>
+<h2 id="core-scoring-metrics">Core Scoring Metrics</h2>
+<p>The system employs five fundamental metrics to assess node
+relevance:</p>
+<h3 id="semantic-similarity">1. Semantic Similarity</h3>
+<ul>
+<li><strong>Input</strong>: Query embeddings, Node embeddings</li>
+<li><strong>Method</strong>: Vector similarity calculation (cosine
+similarity, dot product, etc.)</li>
+<li><strong>Strength</strong>: Captures semantic relationships and
+conceptual alignment</li>
+<li><strong>Use Case</strong>: Universal applicability across all
+content types</li>
+</ul>
+<h3 id="llm-as-a-judge">2. LLM as a Judge</h3>
+<ul>
+<li><strong>Input</strong>: Query text, Node text/database content</li>
+<li><strong>Method</strong>: Language model evaluation of relevance</li>
+<li><strong>Strength</strong>: Sophisticated understanding of context
+and nuanced relationships</li>
+<li><strong>Use Case</strong>: Complex queries requiring reasoning and
+interpretation</li>
+</ul>
+<h3 id="entity-match">3. Entity Match</h3>
+<ul>
+<li><strong>Input</strong>: Query parsed entities, Node content</li>
+<li><strong>Method</strong>: Structured comparison of extracted
+entities</li>
+<li><strong>Strength</strong>: Precise matching of specific requirements
+(features, categories, etc.)</li>
+<li><strong>Use Case</strong>: Product searches with specific
+criteria</li>
+</ul>
+<h3 id="graph-centrality">4. Graph Centrality</h3>
+<ul>
+<li><strong>Input</strong>: Node graph relations</li>
+<li><strong>Method</strong>: Centrality measures (degree, betweenness,
+PageRank, etc.)</li>
+<li><strong>Strength</strong>: Identifies important nodes within the
+graph structure</li>
+<li><strong>Use Case</strong>: Finding authoritative or well-connected
+information sources</li>
+</ul>
+<h3 id="data-type-priority">5. Data Type Priority</h3>
+<ul>
+<li><strong>Input</strong>: Node content type, Query intent/class,
+Priority matrix</li>
+<li><strong>Method</strong>: Lookup-based scoring using predefined
+priority relationships</li>
+<li><strong>Strength</strong>: Domain-specific relevance based on
+query-content type matching</li>
+<li><strong>Use Case</strong>: Ensuring appropriate content types are
+prioritized for specific query intents</li>
+</ul>
+<h2 id="system-integration">System Integration</h2>
+<h3 id="orchestration-service">Orchestration Service</h3>
+<p>The <code>isRelevant</code> function operates within a broader
+orchestration service that:</p>
+<ol type="1">
+<li><strong>Node Ranking</strong>: Organizes nodes by relevance scores
+in descending order</li>
+<li><strong>Context Selection</strong>: Determines which nodes to
+include in RAG context</li>
+<li><strong>Resource Management</strong>: Considers node content length
+and LLM context window constraints</li>
+<li><strong>Optimization</strong>: Balances relevance scores with
+practical context limitations</li>
+</ol>
+<h3 id="implementation-workflow">Implementation Workflow</h3>
+<ol type="1">
+<li>Query preprocessing and entity extraction</li>
+<li>Subgraph identification and node collection</li>
+<li>Relevance scoring for each node using <code>isRelevant</code></li>
+<li>Node ranking based on scores</li>
+<li>Context window optimization and final node selection</li>
+<li>Context assembly for RAG system</li>
+</ol>
+<h2 id="configuration-and-extensibility">Configuration and
+Extensibility</h2>
+<h3 id="scorer-configuration">Scorer Configuration</h3>
+<ul>
+<li>Composite scorer weights should be configurable</li>
+<li>Router scorer rules should be externally defined</li>
+<li>Metric implementations should be pluggable</li>
+</ul>
+<h3 id="performance-considerations">Performance Considerations</h3>
+<ul>
+<li>Batch processing capabilities for multiple nodes</li>
+<li>Caching strategies for expensive operations (LLM calls, embedding
+calculations)</li>
+<li>Scalability for large subgraphs</li>
+</ul>
+<h3 id="monitoring-and-evaluation">Monitoring and Evaluation</h3>
+<ul>
+<li>Relevance score distribution tracking</li>
+<li>A/B testing capabilities for different scorer configurations</li>
+<li>Performance metrics for scoring speed and accuracy</li>
+</ul>
+<h2 id="implementation-guidelines">Implementation Guidelines</h2>
+<ol type="1">
+<li><strong>Modular Design</strong>: Each metric should be implemented
+as a separate, testable component</li>
+<li><strong>Error Handling</strong>: Graceful degradation when specific
+metrics fail</li>
+<li><strong>Logging</strong>: Comprehensive logging for debugging and
+optimization</li>
+<li><strong>Testing</strong>: Unit tests for individual metrics and
+integration tests for scorer combinations</li>
+<li><strong>Documentation</strong>: Clear documentation of scorer
+configurations and tuning parameters</li>
+</ol>
+<p>This design specification provides the foundation for implementing a
+robust, flexible, and scalable relevance scoring system that can adapt
+to various query types and content characteristics while maintaining
+high performance and accuracy.</p>
