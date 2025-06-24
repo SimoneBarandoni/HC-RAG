@@ -162,7 +162,7 @@ def semantic_similarity(query: QueryInput, node: NodeInput) -> float:
     query_emb = query.embeddings.reshape(1, -1)
     node_emb = node.embeddings.reshape(1, -1)
     similarity = cosine_similarity(query_emb, node_emb)[0][0]
-    print(f"Semantic Similarity: {((similarity + 1) / 2):.3f}")
+    #print(f"Semantic Similarity: {((similarity + 1) / 2):.3f}")
     return (similarity + 1) / 2
 
 
@@ -191,19 +191,19 @@ def llm_judge(query: QueryInput, node: NodeInput) -> float:
         ],
         response_format=RelevanceScore,
     )
-    print(f"LLM Judge: {response.choices[0].message.parsed.score:.3f}")
+    #print(f"LLM Judge: {response.choices[0].message.parsed.score:.3f}")
     return response.choices[0].message.parsed.score
 
 def entity_match(query: QueryInput, node: NodeInput) -> float:
     query_entities = set(query.entities)
     node_entities = set(node.entities)
-    print(f"Entity Match: {len(query_entities.intersection(node_entities)) / len(query_entities):.3f}")
+    #print(f"Entity Match: {len(query_entities.intersection(node_entities)) / len(query_entities):.3f}")
     return len(query_entities.intersection(node_entities)) / len(query_entities) 
 
 def node_type_priority(query: QueryInput, node: NodeInput) -> float:
     query_intent = query.intent
     node_type = node.node_type
-    print(f"Node Type Priority: {priority_matrix[query_intent][node_type]:.3f}")
+    #print(f"Node Type Priority: {priority_matrix[query_intent][node_type]:.3f}")
     return priority_matrix[query_intent][node_type]
 
 def parallel_score(query: QueryInput, node: NodeInput) -> float:
@@ -242,23 +242,31 @@ if __name__ == "__main__":
     print(f"Query Intent: {query.intent.value}")
     print(f"Query Entities: {query.entities}")
     print("=" * 80)
+
+    nodes_dict = {}
     
     # Iterate through all sample nodes and calculate relevance scores
     for i, node in enumerate(sample_nodes, 1):
-        print(f"\nNode {i}: {node.text[:60]}{'...' if len(node.text) > 60 else ''}")
-        print(f"Node Type: {node.node_type}")
-        print(f"Node Entities: {node.entities}")
-        print("-" * 40)
-        
+        #print(f"\nNode {i}: {node.text[:60]}{'...' if len(node.text) > 60 else ''}")
+        #print(f"Node Type: {node.node_type}")
+        #print(f"Node Entities: {node.entities}")
+        #print("-" * 40)
+        nodes_dict[node.text] = node
         composite_result = isRelevant(query, node, ScorerType.COMPOSITE)
+        nodes_dict[node.text].score = composite_result
         print("--------------------------------")
-        parallel_result = isRelevant(query, node, ScorerType.PARALLEL)
-        print("--------------------------------")
-        router_result = isRelevant(query, node, ScorerType.ROUTER)
+        #parallel_result = isRelevant(query, node, ScorerType.PARALLEL)
+        #print("--------------------------------")
+        #router_result = isRelevant(query, node, ScorerType.ROUTER)
         
-        print(f"\nFINAL SCORES:")
-        print(f"  Composite Score: {composite_result:.3f}")
-        print(f"  Parallel Score:  {parallel_result:.3f}")
-        print(f"  Router Score:    {router_result:.3f}")
-        print("=" * 80)
+        #print(f"\nFINAL SCORES:")
+        #print(f"  Composite Score: {composite_result:.3f}")
+        #print(f"  Parallel Score:  {parallel_result:.3f}")
+        #print(f"  Router Score:    {router_result:.3f}")
+        #print("=" * 80)
+    
+    # sort nodes_dict by score
+    sorted_nodes = sorted(nodes_dict.items(), key=lambda x: x[1].score, reverse=True)
+    for node_text, node in sorted_nodes:
+        print(f"{node_text}: {node.score:.3f}")
  
