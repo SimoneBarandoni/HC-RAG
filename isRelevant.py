@@ -5,6 +5,7 @@ from enum import Enum
 from pydantic import BaseModel
 from sklearn.metrics.pairwise import cosine_similarity
 from openai import OpenAI
+import time
 
 class QueryIntent(Enum):
     PRODUCT_SEARCH = "product_search"
@@ -89,74 +90,6 @@ def input_node() -> NodeInput:
     graph_relations = {"type": "product", "id": "123"}
     return NodeInput(text=text, embeddings=embeddings, graph_relations=graph_relations, node_type=node_type, entities=entities)
 
-def create_sample_nodes() -> List[NodeInput]:
-    """Create a list of sample nodes with different characteristics for testing relevance scoring"""
-    nodes = []
-    
-    # Node 1: Highly relevant red mountain bike product
-    nodes.append(NodeInput(
-        text="Premium Red Mountain Bike - Trail Blazer X1 with advanced suspension and lightweight frame, perfect for off-road adventures under $900",
-        embeddings=np.random.rand(384),
-        graph_relations={"type": "product", "id": "001", "category": "mountain_bikes"},
-        node_type="product",
-        entities=["red mountain bike", "trail", "suspension", "lightweight"]
-    ))
-    
-    # Node 2: Partially relevant - mountain bike but different color
-    nodes.append(NodeInput(
-        text="Blue Mountain Bike - Rugged terrain specialist with 21-speed gear system, priced at $750",
-        embeddings=np.random.rand(384),
-        graph_relations={"type": "product", "id": "002", "category": "mountain_bikes"},
-        node_type="product",
-        entities=["blue mountain bike", "terrain", "gear system"]
-    ))
-    
-    # Node 3: Document about mountain bike maintenance
-    nodes.append(NodeInput(
-        text="Mountain Bike Maintenance Guide - Complete handbook for maintaining your mountain bike including brake adjustments, tire care, and gear tuning",
-        embeddings=np.random.rand(384),
-        graph_relations={"type": "document", "id": "doc_001", "category": "maintenance"},
-        node_type="document",
-        entities=["mountain bike", "maintenance", "brake", "tire", "gear"]
-    ))
-    
-    # Node 4: Specification document
-    nodes.append(NodeInput(
-        text="Technical Specifications for Mountain Bike Components - Detailed specs for handlebars, frames, wheels, and suspension systems",
-        embeddings=np.random.rand(384),
-        graph_relations={"type": "specification", "id": "spec_001", "category": "components"},
-        node_type="specification",
-        entities=["mountain bike", "handlebars", "frames", "wheels", "suspension"]
-    ))
-    
-    # Node 5: Category node
-    nodes.append(NodeInput(
-        text="Mountain Bikes Category - Browse our complete selection of mountain bikes for all skill levels and terrains",
-        embeddings=np.random.rand(384),
-        graph_relations={"type": "category", "id": "cat_001", "parent": "bikes"},
-        node_type="category",
-        entities=["mountain bikes", "selection", "terrain"]
-    ))
-    
-    # Node 6: Irrelevant node - road bike
-    nodes.append(NodeInput(
-        text="Professional Road Racing Bike - Lightweight carbon fiber frame designed for speed on paved roads, $2500",
-        embeddings=np.random.rand(384),
-        graph_relations={"type": "product", "id": "003", "category": "road_bikes"},
-        node_type="product",
-        entities=["road bike", "carbon fiber", "racing", "paved roads"]
-    ))
-    
-    # Node 7: Completely unrelated node
-    nodes.append(NodeInput(
-        text="Camping Tent Setup Instructions - How to properly set up your 4-person camping tent for outdoor adventures",
-        embeddings=np.random.rand(384),
-        graph_relations={"type": "document", "id": "doc_002", "category": "camping"},
-        node_type="document",
-        entities=["camping tent", "setup", "outdoor", "adventures"]
-    ))
-    
-    return nodes
 
 def semantic_similarity(query: QueryInput, node: NodeInput) -> float:
     query_emb = query.embeddings.reshape(1, -1)
@@ -168,14 +101,39 @@ def semantic_similarity(query: QueryInput, node: NodeInput) -> float:
 
 def llm_judge(query: QueryInput, node: NodeInput) -> float:
     prompt = f"""
-            Evaluate the relevance of the following content to the user query on a scale of 0.0 to 1.0.
-            
             User Query: {query.text}
             
             Content: {node.text}
             
-            Consider semantic relevance, topic alignment, and potential usefulness.
             """
+    
+    system_prompt = """You are an expert relevance evaluator for a knowledge graph system. Your task is to assess how relevant a piece of content is to a user's query.
+                    Scoring Guidelines:
+                    - 0.9-1.0: Perfect match - directly answers the query or provides exactly what's requested
+                    - 0.8-0.9: Highly relevant - very useful for answering the query, contains key information
+                    - 0.6-0.7: Moderately relevant - somewhat useful, related but not central to the query
+                    - 0.4-0.5: Marginally relevant - tangentially related, might provide context
+                    - 0.2-0.3: Low relevance - weakly related, unlikely to be useful
+                    - 0.0-0.1: Not relevant - completely unrelated to the query
+
+                    Consider these factors:
+                    1. Direct topic alignment (does the content address the query topic?)
+                    2. Specificity match (does it match specific criteria like price, color, features?)
+                    3. Content type appropriateness (product info for product queries, docs for technical questions)
+                    4. Completeness (does it provide comprehensive information?)
+
+                    Examples:
+
+                    Query: "Find red mountain bikes under $1000"
+                    Content: "Premium Red Mountain Bike - Trail Blazer X1 with advanced suspension and lightweight frame, perfect for off-road adventures under $900"
+                    Score: 0.95 (Perfect match - red mountain bike under $1000)
+
+                    Query: "Find red mountain bikes under $1000"  
+                    Content: "Blue Mountain Bike - Rugged terrain specialist with 21-speed gear system, priced at $750"
+                    Score: 0.7 (Good price and category match, but wrong color)
+
+                    Now evaluate the given query and content, considering semantic relevance, topic alignment, and potential usefulness:"""
+    
     client = OpenAI(
         base_url="http://localhost:11434/v1",
         api_key="gemma3:1b",
@@ -185,7 +143,7 @@ def llm_judge(query: QueryInput, node: NodeInput) -> float:
         messages=[
             {
                 "role": "system",
-                "content": "You are a helpful assistant that judges the relevance of a query to a node."
+                "content": system_prompt
             },
             {"role": "user", "content": prompt},
         ],
@@ -234,6 +192,9 @@ def isRelevant(query: QueryInput, node: NodeInput, scorer_type: ScorerType) -> f
         return router_score(query, node, [semantic_similarity, llm_judge, node_type_priority])
 
 if __name__ == "__main__":
+    start = time.time()
+    from sample_nodes import create_sample_nodes
+    
     # Create query and sample nodes
     query = input_query()
     sample_nodes = create_sample_nodes()
@@ -254,7 +215,7 @@ if __name__ == "__main__":
         nodes_dict[node.text] = node
         composite_result = isRelevant(query, node, ScorerType.COMPOSITE)
         nodes_dict[node.text].score = composite_result
-        print("--------------------------------")
+        #print("--------------------------------")
         #parallel_result = isRelevant(query, node, ScorerType.PARALLEL)
         #print("--------------------------------")
         #router_result = isRelevant(query, node, ScorerType.ROUTER)
@@ -269,4 +230,6 @@ if __name__ == "__main__":
     sorted_nodes = sorted(nodes_dict.items(), key=lambda x: x[1].score, reverse=True)
     for node_text, node in sorted_nodes:
         print(f"{node_text}: {node.score:.3f}")
+    end = time.time()
+    print(f"Time taken: {end - start:.3f} seconds")
  
