@@ -43,11 +43,13 @@ priority_matrix = {
         'category': 0.8,
         'specification': 0.6,
         'document': 0.3,
+        'annotation': 0.2,
         'unknown': 0.1
     },
     QueryIntent.DOCUMENT_REQUEST: {
         'document': 1.0,
         'specification': 0.7,
+        'annotation': 0.6,
         'product': 0.4,
         'category': 0.2,
         'unknown': 0.1
@@ -55,6 +57,7 @@ priority_matrix = {
     QueryIntent.TECHNICAL_SUPPORT: {
         'document': 1.0,
         'specification': 0.9,
+        'annotation': 0.7,
         'product': 0.6,
         'category': 0.3,
         'unknown': 0.1
@@ -64,11 +67,13 @@ priority_matrix = {
         'specification': 0.8,
         'category': 0.6,
         'document': 0.4,
+        'annotation': 0.3,
         'unknown': 0.1
     },
     QueryIntent.SPECIFICATION_INQUIRY: {
         'specification': 1.0,
         'product': 0.7,
+        'annotation': 0.6,
         'document': 0.5,
         'category': 0.3,
         'unknown': 0.1
@@ -155,14 +160,35 @@ def llm_judge(query: QueryInput, node: NodeInput) -> float:
 def entity_match(query: QueryInput, node: NodeInput) -> float:
     query_entities = set(query.entities)
     node_entities = set(node.entities)
-    #print(f"Entity Match: {len(query_entities.intersection(node_entities)) / len(query_entities):.3f}")
-    return len(query_entities.intersection(node_entities)) / len(query_entities) 
+    
+    # Handle case when query has no entities
+    if len(query_entities) == 0:
+        # If both query and node have no entities, return neutral score
+        if len(node_entities) == 0:
+            return 0.5
+        # If only query has no entities but node has some, return low score
+        else:
+            return 0.1
+    
+    # Normal case: calculate intersection ratio
+    match_ratio = len(query_entities.intersection(node_entities)) / len(query_entities)
+    #print(f"Entity Match: {match_ratio:.3f}")
+    return match_ratio 
 
 def node_type_priority(query: QueryInput, node: NodeInput) -> float:
     query_intent = query.intent
     node_type = node.node_type
-    #print(f"Node Type Priority: {priority_matrix[query_intent][node_type]:.3f}")
-    return priority_matrix[query_intent][node_type]
+    
+    # Handle case when node_type is not in priority_matrix
+    if node_type not in priority_matrix[query_intent]:
+        # Use 'unknown' as fallback
+        priority_score = priority_matrix[query_intent]['unknown']
+        #print(f"Node Type Priority: {priority_score:.3f} (fallback for unknown type '{node_type}')")
+    else:
+        priority_score = priority_matrix[query_intent][node_type]
+        #print(f"Node Type Priority: {priority_score:.3f}")
+    
+    return priority_score
 
 def parallel_score(query: QueryInput, node: NodeInput) -> float:
     return max(

@@ -580,6 +580,7 @@ def test_neo4j_connection():
 
 # Main execution (only runs when script is executed directly)
 if __name__ == "__main__":
+    # load csv data
     csv_data = load_csv_data()
     document_structure = analyze_ingested_documents()
 
