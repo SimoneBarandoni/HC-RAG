@@ -1,0 +1,71 @@
+{
+  "timestamp": "2025-06-30T16:14:19.825098",
+  "test_question": "Show me products under $500",
+  "test_seed": 42,
+  "total_tests": 2,
+  "successful_tests": 2,
+  "failed_tests": 0,
+  "results_summary": [
+    {
+      "approach": "Composite Test",
+      "scorer_type": "composite",
+      "processing_mode": "batch",
+      "batch_enabled": true,
+      "batch_size": 10,
+      "success": true,
+      "execution_time": 25.49,
+      "final_answer": "Here are products under $500:\n\n*   Mountain-100 Silver, 42 | Category: Mountain Bikes | Price: $3399.99 | Color: Silver\n*   Road-250 Black, 52 | Category: Road Bikes | Price: $2443.35 | Color: Black\n\n**Confidence Level:** 95%\n\n**Information Source:** Knowledge graph\n\nWould you like me to search for more products?",
+      "final_answer_length": 314,
+      "semantic_nodes_count": 5,
+      "final_nodes_count": 8,
+      "expanded_nodes_count": 12,
+      "avg_semantic_score": 0.594,
+      "avg_final_score": 0.595,
+      "high_relevance_count": 1
+    },
+    {
+      "approach": "Semantic Only Test",
+      "scorer_type": "router_single_sem",
+      "processing_mode": "batch",
+      "batch_enabled": true,
+      "batch_size": 10,
+      "success": true,
+      "execution_time": 11.43,
+      "final_answer": "Here are products under $500:\n\n*   Mountain-100 Silver, 42 | Category: Mountain Bikes | Price: $3399.99 | Color: Silver\n*   Mountain-300 Black, 40 | Category: Mountain Bikes | Price: $1079.99 | Color: Black\n*   Road-450 Red, 48 | Category: Road Bikes | Price: $1457.99 | Color: Red\n*   Mountain-200 Silver, 46 | Category: Mountain Bikes | Price: $2319.99 | Color: Silver\n*   Mountain-200 Black, 38 | Category: Mountain Bikes | Price: $2294.99 | Color: Black\n*   Road-450 Red, 58 | Category: Road Bikes | Price: $1457.99 | Color: Red\n\n**Confidence Level:** 95%",
+      "final_answer_length": 559,
+      "semantic_nodes_count": 5,
+      "final_nodes_count": 8,
+      "expanded_nodes_count": 10,
+      "avg_semantic_score": 0.885,
+      "avg_final_score": 0.886,
+      "high_relevance_count": 8
+    }
+  ],
+  "performance_ranking": [
+    {
+      "rank": 1,
+      "approach": "Semantic Only Test",
+      "scorer_type": "router_single_sem",
+      "avg_final_score": 0.886,
+      "high_relevance_count": 8,
+      "execution_time": 11.43,
+      "final_nodes_count": 8
+    },
+    {
+      "rank": 2,
+      "approach": "Composite Test",
+      "scorer_type": "composite",
+      "avg_final_score": 0.595,
+      "high_relevance_count": 1,
+      "execution_time": 25.49,
+      "final_nodes_count": 8
+    }
+  ],
+  "score_distribution": {
+    "0.0-0.3": 0,
+    "0.3-0.5": 0,
+    "0.5-0.7": 7,
+    "0.7-0.9": 9,
+    "0.9-1.0": 0
+  }
+}
