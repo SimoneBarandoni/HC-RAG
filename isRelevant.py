@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, List
 import numpy as np
 from enum import Enum
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sklearn.metrics.pairwise import cosine_similarity
 from openai import OpenAI
 import time
@@ -33,9 +33,19 @@ class ScorerType(Enum):
     COMPOSITE = "composite"
     PARALLEL = "parallel"
     ROUTER = "router"
+    ROUTER_ALL = "router_all"
+    ROUTER_TWO_SEM_LLM = "router_two_sem_llm"
+    ROUTER_TWO_ENT_TYPE = "router_two_ent_type"
+    ROUTER_SINGLE_SEM = "router_single_sem"
+    ROUTER_SINGLE_LLM = "router_single_llm"
+    ROUTER_SINGLE_ENT = "router_single_ent"
+    ROUTER_SINGLE_TYPE = "router_single_type"
 
 class RelevanceScore(BaseModel):
     score: float
+
+class BatchRelevanceScore(BaseModel):
+    scores: List[float] = Field(description="List of relevance scores for each node in the batch")
 
 priority_matrix = {
     QueryIntent.PRODUCT_SEARCH: {
@@ -157,6 +167,88 @@ def llm_judge(query: QueryInput, node: NodeInput) -> float:
     #print(f"LLM Judge: {response.choices[0].message.parsed.score:.3f}")
     return response.choices[0].message.parsed.score
 
+def batch_llm_judge(query: QueryInput, nodes: List[NodeInput]) -> List[float]:
+    """Batch LLM judge for multiple nodes at once - much more efficient than individual calls."""
+    
+    if not nodes:
+        return []
+    
+    # Prepare batch content
+    nodes_text = []
+    for i, node in enumerate(nodes, 1):
+        nodes_text.append(f"Content {i}: {node.text}")
+    
+    batch_content = "\n\n".join(nodes_text)
+    
+    prompt = f"""
+            User Query: {query.text}
+            
+            Multiple Contents to Evaluate:
+            {batch_content}
+            
+            """
+    
+    system_prompt = f"""You are an expert relevance evaluator for a knowledge graph system. Your task is to assess how relevant each piece of content is to a user's query.
+
+                    You will receive {len(nodes)} pieces of content to evaluate. For each content, provide a relevance score between 0.0 and 1.0.
+
+                    Scoring Guidelines:
+                    - 0.9-1.0: Perfect match - directly answers the query or provides exactly what's requested
+                    - 0.8-0.9: Highly relevant - very useful for answering the query, contains key information
+                    - 0.6-0.7: Moderately relevant - somewhat useful, related but not central to the query
+                    - 0.4-0.5: Marginally relevant - tangentially related, might provide context
+                    - 0.2-0.3: Low relevance - weakly related, unlikely to be useful
+                    - 0.0-0.1: Not relevant - completely unrelated to the query
+
+                    Consider these factors:
+                    1. Direct topic alignment (does the content address the query topic?)
+                    2. Specificity match (does it match specific criteria like price, color, features?)
+                    3. Content type appropriateness (product info for product queries, docs for technical questions)
+                    4. Completeness (does it provide comprehensive information?)
+
+                    Return exactly {len(nodes)} scores as a list, one for each content in order.
+                    
+                    Example format for 3 contents:
+                    Query: "Find red mountain bikes under $1000"
+                    Content 1: "Premium Red Mountain Bike under $900" 
+                    Content 2: "Blue Mountain Bike for $750"
+                    Content 3: "Camping tent setup guide"
+                    Response: [0.95, 0.70, 0.05]"""
+    
+    try:
+        client = OpenAI(
+            base_url="http://localhost:11434/v1",
+            api_key="gemma3:1b",
+        )
+        response = client.beta.chat.completions.parse(
+            model="gemma3:1b",
+            messages=[
+                {
+                    "role": "system",
+                    "content": system_prompt
+                },
+                {"role": "user", "content": prompt},
+            ],
+            response_format=BatchRelevanceScore,
+        )
+        
+        scores = response.choices[0].message.parsed.scores
+        
+        # Ensure we have the right number of scores
+        if len(scores) != len(nodes):
+            print(f"⚠️ Batch LLM returned {len(scores)} scores for {len(nodes)} nodes, padding/truncating")
+            while len(scores) < len(nodes):
+                scores.append(0.5)  # Default score for missing
+            scores = scores[:len(nodes)]  # Truncate if too many
+        
+        #print(f"Batch LLM Judge: {len(nodes)} nodes -> {[f'{s:.3f}' for s in scores]}")
+        return scores
+        
+    except Exception as e:
+        print(f"⚠️ Batch LLM judge failed: {e}, falling back to individual calls")
+        # Fallback to individual calls
+        return [llm_judge(query, node) for node in nodes]
+
 def entity_match(query: QueryInput, node: NodeInput) -> float:
     query_entities = set(query.entities)
     node_entities = set(node.entities)
@@ -190,6 +282,66 @@ def node_type_priority(query: QueryInput, node: NodeInput) -> float:
     
     return priority_score
 
+def batch_semantic_similarity(query: QueryInput, nodes: List[NodeInput]) -> List[float]:
+    """Batch semantic similarity calculation using vectorized operations."""
+    if not nodes:
+        return []
+    
+    # Vectorized similarity calculation
+    query_emb = query.embeddings.reshape(1, -1)
+    node_embs = np.array([node.embeddings for node in nodes])
+    
+    similarities = cosine_similarity(query_emb, node_embs)[0]
+    # Normalize to 0-1 range
+    normalized_similarities = [(sim + 1) / 2 for sim in similarities]
+    
+    return normalized_similarities
+
+def batch_entity_match(query: QueryInput, nodes: List[NodeInput]) -> List[float]:
+    """Batch entity matching calculation."""
+    if not nodes:
+        return []
+    
+    query_entities = set(query.entities)
+    
+    scores = []
+    for node in nodes:
+        node_entities = set(node.entities)
+        
+        # Handle case when query has no entities
+        if len(query_entities) == 0:
+            if len(node_entities) == 0:
+                scores.append(0.5)
+            else:
+                scores.append(0.1)
+        else:
+            # Normal case: calculate intersection ratio
+            match_ratio = len(query_entities.intersection(node_entities)) / len(query_entities)
+            scores.append(match_ratio)
+    
+    return scores
+
+def batch_node_type_priority(query: QueryInput, nodes: List[NodeInput]) -> List[float]:
+    """Batch node type priority calculation."""
+    if not nodes:
+        return []
+    
+    query_intent = query.intent
+    
+    scores = []
+    for node in nodes:
+        node_type = node.node_type
+        
+        # Handle case when node_type is not in priority_matrix
+        if node_type not in priority_matrix[query_intent]:
+            priority_score = priority_matrix[query_intent]['unknown']
+        else:
+            priority_score = priority_matrix[query_intent][node_type]
+        
+        scores.append(priority_score)
+    
+    return scores
+
 def parallel_score(query: QueryInput, node: NodeInput) -> float:
     return max(
         semantic_similarity(query, node),
@@ -216,6 +368,110 @@ def isRelevant(query: QueryInput, node: NodeInput, scorer_type: ScorerType) -> f
         return parallel_score(query, node)
     elif scorer_type == ScorerType.ROUTER:
         return router_score(query, node, [semantic_similarity, llm_judge, node_type_priority])
+    elif scorer_type == ScorerType.ROUTER_ALL:
+        return router_score(query, node, [semantic_similarity, llm_judge, entity_match, node_type_priority])
+    elif scorer_type == ScorerType.ROUTER_TWO_SEM_LLM:
+        return router_score(query, node, [semantic_similarity, llm_judge])
+    elif scorer_type == ScorerType.ROUTER_TWO_ENT_TYPE:
+        return router_score(query, node, [entity_match, node_type_priority])
+    elif scorer_type == ScorerType.ROUTER_SINGLE_SEM:
+        return semantic_similarity(query, node)
+    elif scorer_type == ScorerType.ROUTER_SINGLE_LLM:
+        return llm_judge(query, node)
+    elif scorer_type == ScorerType.ROUTER_SINGLE_ENT:
+        return entity_match(query, node)
+    elif scorer_type == ScorerType.ROUTER_SINGLE_TYPE:
+        return node_type_priority(query, node)
+    else:
+        # Fallback to composite
+        return composite_score(query, node)
+
+def batch_isRelevant(query: QueryInput, nodes: List[NodeInput], scorer_type: ScorerType, batch_size: int = 10) -> List[float]:
+    """
+    Batch version of isRelevant - processes multiple nodes efficiently.
+    
+    Args:
+        query: Query input
+        nodes: List of nodes to score
+        scorer_type: Scoring approach to use
+        batch_size: Size of batches for LLM calls (default 10)
+    
+    Returns:
+        List of relevance scores for each node
+    """
+    if not nodes:
+        return []
+    
+    print(f"🚀 Batch processing {len(nodes)} nodes with {scorer_type.value} scorer (batch_size={batch_size})")
+    
+    # For single metric scorers, we can process all at once
+    if scorer_type == ScorerType.ROUTER_SINGLE_SEM:
+        return batch_semantic_similarity(query, nodes)
+    elif scorer_type == ScorerType.ROUTER_SINGLE_ENT:
+        return batch_entity_match(query, nodes)
+    elif scorer_type == ScorerType.ROUTER_SINGLE_TYPE:
+        return batch_node_type_priority(query, nodes)
+    elif scorer_type == ScorerType.ROUTER_SINGLE_LLM:
+        # Process in batches for LLM
+        return _batch_process_with_llm(query, nodes, batch_size)
+    
+    # For composite scorers, calculate all metrics in batch
+    semantic_scores = batch_semantic_similarity(query, nodes)
+    entity_scores = batch_entity_match(query, nodes) 
+    type_scores = batch_node_type_priority(query, nodes)
+    
+    # LLM scores - process in batches
+    llm_scores = _batch_process_with_llm(query, nodes, batch_size) if _needs_llm_scores(scorer_type) else [0.0] * len(nodes)
+    
+    # Combine scores based on scorer type
+    final_scores = []
+    for i in range(len(nodes)):
+        sem_score = semantic_scores[i]
+        ent_score = entity_scores[i]
+        type_score = type_scores[i]
+        llm_score = llm_scores[i] if i < len(llm_scores) else 0.0
+        
+        if scorer_type == ScorerType.COMPOSITE:
+            score = sem_score * 0.4 + llm_score * 0.3 + ent_score * 0.15 + type_score * 0.15
+        elif scorer_type == ScorerType.PARALLEL:
+            score = max(sem_score, llm_score, ent_score, type_score)
+        elif scorer_type == ScorerType.ROUTER:
+            score = (sem_score + llm_score + type_score) / 3
+        elif scorer_type == ScorerType.ROUTER_ALL:
+            score = (sem_score + llm_score + ent_score + type_score) / 4
+        elif scorer_type == ScorerType.ROUTER_TWO_SEM_LLM:
+            score = (sem_score + llm_score) / 2
+        elif scorer_type == ScorerType.ROUTER_TWO_ENT_TYPE:
+            score = (ent_score + type_score) / 2
+        else:
+            # Fallback to composite
+            score = sem_score * 0.4 + llm_score * 0.3 + ent_score * 0.15 + type_score * 0.15
+        
+        final_scores.append(score)
+    
+    print(f"✅ Batch processing completed: {len(final_scores)} scores generated")
+    return final_scores
+
+def _needs_llm_scores(scorer_type: ScorerType) -> bool:
+    """Check if the scorer type requires LLM scores."""
+    llm_scorers = {
+        ScorerType.COMPOSITE, ScorerType.PARALLEL, ScorerType.ROUTER,
+        ScorerType.ROUTER_ALL, ScorerType.ROUTER_TWO_SEM_LLM, ScorerType.ROUTER_SINGLE_LLM
+    }
+    return scorer_type in llm_scorers
+
+def _batch_process_with_llm(query: QueryInput, nodes: List[NodeInput], batch_size: int) -> List[float]:
+    """Process nodes with LLM in batches."""
+    all_scores = []
+    
+    for i in range(0, len(nodes), batch_size):
+        batch = nodes[i:i + batch_size]
+        batch_scores = batch_llm_judge(query, batch)
+        all_scores.extend(batch_scores)
+        
+        print(f"  📊 Processed batch {i//batch_size + 1}: {len(batch)} nodes")
+    
+    return all_scores
 
 if __name__ == "__main__":
     start = time.time()
@@ -232,25 +488,14 @@ if __name__ == "__main__":
 
     nodes_dict = {}
     
-    # Iterate through all sample nodes and calculate relevance scores
-    for i, node in enumerate(sample_nodes, 1):
-        #print(f"\nNode {i}: {node.text[:60]}{'...' if len(node.text) > 60 else ''}")
-        #print(f"Node Type: {node.node_type}")
-        #print(f"Node Entities: {node.entities}")
-        #print("-" * 40)
+    # Use batch processing for efficiency
+    print("🚀 Using batch processing for relevance scoring...")
+    composite_scores = batch_isRelevant(query, sample_nodes, ScorerType.COMPOSITE, batch_size=5)
+    
+    # Assign scores to nodes
+    for node, score in zip(sample_nodes, composite_scores):
         nodes_dict[node.text] = node
-        composite_result = isRelevant(query, node, ScorerType.COMPOSITE)
-        nodes_dict[node.text].score = composite_result
-        #print("--------------------------------")
-        #parallel_result = isRelevant(query, node, ScorerType.PARALLEL)
-        #print("--------------------------------")
-        #router_result = isRelevant(query, node, ScorerType.ROUTER)
-        
-        #print(f"\nFINAL SCORES:")
-        #print(f"  Composite Score: {composite_result:.3f}")
-        #print(f"  Parallel Score:  {parallel_result:.3f}")
-        #print(f"  Router Score:    {router_result:.3f}")
-        #print("=" * 80)
+        nodes_dict[node.text].score = score
     
     # sort nodes_dict by score
     sorted_nodes = sorted(nodes_dict.items(), key=lambda x: x[1].score, reverse=True)
