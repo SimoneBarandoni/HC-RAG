@@ -1,4 +1,3 @@
-import os
 import random
 from typing import List, Dict, TypedDict, Optional
 from neo4j import GraphDatabase
@@ -10,24 +9,19 @@ import numpy as np
 from openai import OpenAI
 from pydantic import BaseModel as PydanticBaseModel, Field
 
+# import configurations
+from configurations import OLLAMA_BASE_URL, OLLAMA_KEY, OLLAMA_MODEL, NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD
+
 # --- 1. CONFIGURATION ---
-# Configuration for gemma3:1b via Ollama
-OLLAMA_BASE_URL = "http://localhost:11434/v1"
-OLLAMA_MODEL = "gemma3:1b"
+
+# Neo4j driver
+neo4j_driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USERNAME, NEO4J_PASSWORD))
 
 # OpenAI client configured for Ollama
 ollama_client = OpenAI(
     base_url=OLLAMA_BASE_URL,
-    api_key=OLLAMA_MODEL,
+    api_key=OLLAMA_KEY,
 )
-
-# Neo4j configuration
-NEO4J_URI = "bolt://localhost:7687"
-NEO4J_USERNAME = "neo4j"
-NEO4J_PASSWORD = "password"
-
-# Neo4j driver
-neo4j_driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USERNAME, NEO4J_PASSWORD))
 
 # Global scorer configuration
 CURRENT_SCORER_TYPE = ScorerType.COMPOSITE
@@ -78,14 +72,14 @@ def call_ollama_llm(
     """
     try:
         client = OpenAI(
-            base_url="http://localhost:11434/v1",
-            api_key="gemma3:1b",
+            base_url=OLLAMA_BASE_URL,#"http://localhost:11434/v1",
+            api_key=OLLAMA_KEY,
             timeout=timeout,  # Add timeout
         )
 
         if response_format:
             response = client.beta.chat.completions.parse(
-                model="gemma3:1b",
+                model=OLLAMA_MODEL,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
@@ -96,7 +90,7 @@ def call_ollama_llm(
             return response.choices[0].message.parsed
         else:
             response = client.chat.completions.create(
-                model="gemma3:1b",
+                model=OLLAMA_MODEL,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
@@ -380,7 +374,7 @@ def sample_neo4j_nodes(state: RetrievalState) -> Dict:
         random.seed(RANDOM_SEED)
         print(f"🎯 Using fixed random seed: {RANDOM_SEED}")
 
-    sampled_nodes = sample_random_nodes_from_neo4j(limit=50)
+    sampled_nodes = sample_random_nodes_from_neo4j(limit=20)
 
     return {"sampled_nodes": sampled_nodes}
 
@@ -911,7 +905,7 @@ if __name__ == "__main__":
 
         # Instead of streaming, use invoke to get complete final state
         print("🔄 Processing workflow (this may take a moment)...")
-        final_state = app.invoke(inputs, {"recursion_limit": 12})
+        final_state = app.invoke(inputs, {"recursion_limit": 15})
 
         print("\n" + "=" * 80)
         print("✅ PROCESSING COMPLETED!")

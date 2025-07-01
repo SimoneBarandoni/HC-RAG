@@ -6,6 +6,8 @@ from pydantic import BaseModel, Field
 from sklearn.metrics.pairwise import cosine_similarity
 from openai import OpenAI
 import time
+from configurations import OLLAMA_BASE_URL, OLLAMA_KEY, OLLAMA_MODEL
+
 
 class QueryIntent(Enum):
     PRODUCT_SEARCH = "product_search"
@@ -110,7 +112,6 @@ def semantic_similarity(query: QueryInput, node: NodeInput) -> float:
     query_emb = query.embeddings.reshape(1, -1)
     node_emb = node.embeddings.reshape(1, -1)
     similarity = cosine_similarity(query_emb, node_emb)[0][0]
-    #print(f"Semantic Similarity: {((similarity + 1) / 2):.3f}")
     return (similarity + 1) / 2
 
 
@@ -150,11 +151,11 @@ def llm_judge(query: QueryInput, node: NodeInput) -> float:
                     Now evaluate the given query and content, considering semantic relevance, topic alignment, and potential usefulness:"""
     
     client = OpenAI(
-        base_url="http://localhost:11434/v1",
-        api_key="gemma3:1b",
+        base_url=OLLAMA_BASE_URL,#"http://localhost:11434/v1",
+        api_key=OLLAMA_KEY,
     )
     response = client.beta.chat.completions.parse(
-        model="gemma3:1b",
+        model=OLLAMA_MODEL,
         messages=[
             {
                 "role": "system",
@@ -164,7 +165,6 @@ def llm_judge(query: QueryInput, node: NodeInput) -> float:
         ],
         response_format=RelevanceScore,
     )
-    #print(f"LLM Judge: {response.choices[0].message.parsed.score:.3f}")
     return response.choices[0].message.parsed.score
 
 def batch_llm_judge(query: QueryInput, nodes: List[NodeInput]) -> List[float]:
@@ -217,11 +217,11 @@ def batch_llm_judge(query: QueryInput, nodes: List[NodeInput]) -> List[float]:
     
     try:
         client = OpenAI(
-            base_url="http://localhost:11434/v1",
-            api_key="gemma3:1b",
+            base_url=OLLAMA_BASE_URL,#"http://localhost:11434/v1",
+            api_key=OLLAMA_KEY,
         )
         response = client.beta.chat.completions.parse(
-            model="gemma3:1b",
+            model=OLLAMA_MODEL,
             messages=[
                 {
                     "role": "system",
@@ -236,16 +236,13 @@ def batch_llm_judge(query: QueryInput, nodes: List[NodeInput]) -> List[float]:
         
         # Ensure we have the right number of scores
         if len(scores) != len(nodes):
-            print(f"⚠️ Batch LLM returned {len(scores)} scores for {len(nodes)} nodes, padding/truncating")
             while len(scores) < len(nodes):
                 scores.append(0.5)  # Default score for missing
             scores = scores[:len(nodes)]  # Truncate if too many
         
-        #print(f"Batch LLM Judge: {len(nodes)} nodes -> {[f'{s:.3f}' for s in scores]}")
         return scores
         
     except Exception as e:
-        print(f"⚠️ Batch LLM judge failed: {e}, falling back to individual calls")
         # Fallback to individual calls
         return [llm_judge(query, node) for node in nodes]
 
@@ -264,7 +261,6 @@ def entity_match(query: QueryInput, node: NodeInput) -> float:
     
     # Normal case: calculate intersection ratio
     match_ratio = len(query_entities.intersection(node_entities)) / len(query_entities)
-    #print(f"Entity Match: {match_ratio:.3f}")
     return match_ratio 
 
 def node_type_priority(query: QueryInput, node: NodeInput) -> float:
@@ -402,7 +398,7 @@ def batch_isRelevant(query: QueryInput, nodes: List[NodeInput], scorer_type: Sco
     if not nodes:
         return []
     
-    print(f"🚀 Batch processing {len(nodes)} nodes with {scorer_type.value} scorer (batch_size={batch_size})")
+    #print(f"🚀 Batch processing {len(nodes)} nodes with {scorer_type.value} scorer (batch_size={batch_size})")
     
     # For single metric scorers, we can process all at once
     if scorer_type == ScorerType.ROUTER_SINGLE_SEM:
@@ -481,15 +477,15 @@ if __name__ == "__main__":
     query = input_query()
     sample_nodes = create_sample_nodes()
     
-    print(f"Query: {query.text}")
-    print(f"Query Intent: {query.intent.value}")
-    print(f"Query Entities: {query.entities}")
-    print("=" * 80)
+    #print(f"Query: {query.text}")
+    #print(f"Query Intent: {query.intent.value}")
+    #print(f"Query Entities: {query.entities}")
+    #print("=" * 80)
 
     nodes_dict = {}
     
     # Use batch processing for efficiency
-    print("🚀 Using batch processing for relevance scoring...")
+    #print("🚀 Using batch processing for relevance scoring...")
     composite_scores = batch_isRelevant(query, sample_nodes, ScorerType.COMPOSITE, batch_size=5)
     
     # Assign scores to nodes
@@ -499,8 +495,8 @@ if __name__ == "__main__":
     
     # sort nodes_dict by score
     sorted_nodes = sorted(nodes_dict.items(), key=lambda x: x[1].score, reverse=True)
-    for node_text, node in sorted_nodes:
-        print(f"{node_text}: {node.score:.3f}")
+    #for node_text, node in sorted_nodes:
+        #print(f"{node_text}: {node.score:.3f}")
     end = time.time()
-    print(f"Time taken: {end - start:.3f} seconds")
+    #print(f"Time taken: {end - start:.3f} seconds")
  
