@@ -1,16 +1,37 @@
 import random
+import logging
 from typing import List, Dict, TypedDict, Optional
 from neo4j import GraphDatabase
 from langgraph.graph import StateGraph, END
 
 # Import the relevance scoring system
-from isRelevant import isRelevant, batch_isRelevant, QueryInput, NodeInput, ScorerType, QueryIntent
+from isRelevant import (
+    isRelevant,
+    batch_isRelevant,
+    QueryInput,
+    NodeInput,
+    ScorerType,
+    QueryIntent,
+)
 import numpy as np
 from openai import OpenAI
 from pydantic import BaseModel as PydanticBaseModel, Field
 
 # import configurations
-from configurations import OLLAMA_BASE_URL, OLLAMA_KEY, OLLAMA_MODEL, NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD
+from configurations import (
+    OLLAMA_BASE_URL,
+    OLLAMA_KEY,
+    OLLAMA_MODEL,
+    NEO4J_URI,
+    NEO4J_USERNAME,
+    NEO4J_PASSWORD,
+)
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
 
 # --- 1. CONFIGURATION ---
 
@@ -38,20 +59,20 @@ def set_scorer_type(scorer_type: ScorerType):
     """Set the global scorer type for isRelevant evaluation."""
     global CURRENT_SCORER_TYPE
     CURRENT_SCORER_TYPE = scorer_type
-    print(f"🔧 Scorer type set to: {scorer_type.value}")
+
 
 def set_random_seed(seed: int):
     """Set the global random seed for consistent node sampling."""
     global RANDOM_SEED
     RANDOM_SEED = seed
-    print(f"🎯 Random seed set to: {seed}")
+
 
 def set_batch_processing(enabled: bool, batch_size: int = 10):
     """Configure batch processing settings."""
     global USE_BATCH_PROCESSING, BATCH_SIZE
     USE_BATCH_PROCESSING = enabled
     BATCH_SIZE = batch_size
-    print(f"🔧 Batch processing: {'enabled' if enabled else 'disabled'} (batch_size={batch_size})")
+
 
 def reset_global_config():
     """Reset global configuration to defaults."""
@@ -60,7 +81,6 @@ def reset_global_config():
     RANDOM_SEED = None
     USE_BATCH_PROCESSING = True
     BATCH_SIZE = 10
-    print("🔄 Global configuration reset to defaults")
 
 
 # Helper function for LLM calls
@@ -72,7 +92,7 @@ def call_ollama_llm(
     """
     try:
         client = OpenAI(
-            base_url=OLLAMA_BASE_URL,#"http://localhost:11434/v1",
+            base_url=OLLAMA_BASE_URL,  # "http://localhost:11434/v1",
             api_key=OLLAMA_KEY,
             timeout=timeout,  # Add timeout
         )
@@ -100,7 +120,7 @@ def call_ollama_llm(
             return response.choices[0].message.content
 
     except Exception as e:
-        print(f"⚠️ LLM call failed: {e}")
+        logger.warning(f"LLM call failed: {e}")
         # Return a fallback response instead of crashing
         if response_format:
             # Try to create a minimal valid response for structured formats
@@ -197,16 +217,10 @@ Analyze the question and return the most appropriate intent with confidence and 
         intent_str = response.intent.lower()
         detected_intent = intent_mapping.get(intent_str, QueryIntent.PRODUCT_SEARCH)
 
-        print(
-            f"🤖 Intent detected: {detected_intent.value} (confidence: {response.confidence:.2f})"
-        )
-        print(f"📝 Reasoning: {response.reasoning}")
-
         return detected_intent
 
     except Exception as e:
-        print(f"⚠️ Error in intent analysis: {e}")
-        print("🔧 Using fallback: PRODUCT_SEARCH")
+        logger.error(f"Error in intent analysis: {e}")
         return QueryIntent.PRODUCT_SEARCH
 
 
@@ -251,7 +265,6 @@ def create_query_input(question: str) -> QueryInput:
 
 def sample_random_nodes_from_neo4j(limit: int = 5) -> List[Dict]:
     """Sample random nodes from Neo4j graph."""
-    print(f"🎲 Sampling {limit} random nodes from Neo4j graph...")
 
     try:
         with neo4j_driver.session() as session:
@@ -260,7 +273,7 @@ def sample_random_nodes_from_neo4j(limit: int = 5) -> List[Dict]:
             total_nodes = session.run(count_query).single()["total"]
 
             if total_nodes == 0:
-                print("⚠️ No nodes found in graph!")
+                logger.warning("No nodes found in graph!")
                 return []
 
             # Generate random numbers for sampling
@@ -285,18 +298,10 @@ def sample_random_nodes_from_neo4j(limit: int = 5) -> List[Dict]:
                     node["_id"] = result["node_id"]
                     sampled_nodes.append(node)
 
-            print(f"✅ Sampled {len(sampled_nodes)} nodes:")
-            for i, node in enumerate(sampled_nodes, 1):
-                labels = node.get("_labels", ["Unknown"])
-                name = node.get(
-                    "name", node.get("filename", node.get("document_name", "Unknown"))
-                )
-                print(f"   {i}. {labels[0]}: {name}")
-
             return sampled_nodes
 
     except Exception as e:
-        print(f"❌ Error sampling nodes: {e}")
+        logger.error(f"Error sampling nodes: {e}")
         return []
 
 
@@ -355,24 +360,18 @@ def convert_neo4j_node_to_node_input(neo4j_node: Dict) -> NodeInput:
 
 def analyze_query(state: RetrievalState) -> Dict:
     """Node to analyze query and create QueryInput structure."""
-    print("--- 🔍 NODE: Query Analysis ---")
     question = state["question"]
 
     query_input = create_query_input(question)
-    print(f"Intent detected: {query_input.intent.value}")
-    print(f"Entities extracted: {query_input.entities}")
 
     return {"query_input": query_input}
 
 
 def sample_neo4j_nodes(state: RetrievalState) -> Dict:
-    """Node to sample random nodes from Neo4j graph."""
-    print("--- 🎲 NODE: Neo4j Node Sampling ---")
-    
+
     global RANDOM_SEED
     if RANDOM_SEED is not None:
         random.seed(RANDOM_SEED)
-        print(f"🎯 Using fixed random seed: {RANDOM_SEED}")
 
     sampled_nodes = sample_random_nodes_from_neo4j(limit=20)
 
@@ -382,9 +381,9 @@ def sample_neo4j_nodes(state: RetrievalState) -> Dict:
 def score_semantic_similarity(state: RetrievalState) -> Dict:
     """Node to score sampled nodes using semantic similarity and select top 5."""
     global USE_BATCH_PROCESSING, BATCH_SIZE
-    
+
     batch_info = f"batch_size={BATCH_SIZE}" if USE_BATCH_PROCESSING else "individual"
-    print(f"--- 🔍 NODE: Semantic Similarity Scoring ({batch_info}) ---")
+    logger.debug(f"NODE: Semantic Similarity Scoring ({batch_info})")
 
     sampled_nodes = state["sampled_nodes"]
     query_input = state["query_input"]
@@ -395,29 +394,24 @@ def score_semantic_similarity(state: RetrievalState) -> Dict:
         node_input = convert_neo4j_node_to_node_input(neo4j_node)
         candidate_nodes.append(node_input)
 
-    print(f"Converted {len(candidate_nodes)} nodes for semantic scoring")
-
     # Score nodes using batch or individual processing
     if USE_BATCH_PROCESSING and len(candidate_nodes) > 0:
-        print(f"🚀 Using batch semantic similarity for {len(candidate_nodes)} nodes")
         try:
             from isRelevant import batch_semantic_similarity
+
             similarity_scores = batch_semantic_similarity(query_input, candidate_nodes)
-            
+
             # Assign scores to nodes
             for node, score in zip(candidate_nodes, similarity_scores):
                 node.score = score
-                print(f"  Node: {node.text[:50]}... -> similarity: {score:.3f}")
-            
+
             scored_nodes = candidate_nodes
-            
+
         except Exception as e:
-            print(f"⚠️ Batch semantic similarity failed: {e}, falling back to individual processing")
             USE_BATCH_PROCESSING = False  # Temporarily disable for this run
-    
+
     if not USE_BATCH_PROCESSING:
         # Fallback to individual processing
-        print("🔄 Using individual semantic similarity scoring")
         scored_nodes = []
         for node in candidate_nodes:
             # Use semantic_similarity function from isRelevant.py
@@ -426,7 +420,6 @@ def score_semantic_similarity(state: RetrievalState) -> Dict:
             similarity_score = semantic_similarity(query_input, node)
             node.score = similarity_score
             scored_nodes.append(node)
-            print(f"  Node: {node.text[:50]}... -> similarity: {similarity_score:.3f}")
 
     # Sort by similarity and apply threshold
     sorted_nodes = sorted(scored_nodes, key=lambda x: x.score, reverse=True)
@@ -434,18 +427,15 @@ def score_semantic_similarity(state: RetrievalState) -> Dict:
     # Take top 5 with minimum threshold of 0.50
     semantic_scored_nodes = [node for node in sorted_nodes[:5] if node.score >= 0.50]
 
-    print(
-        f"Selected {len(semantic_scored_nodes)} nodes with semantic similarity ≥ 0.50:"
+    logger.info(
+        f"Selected {len(semantic_scored_nodes)} nodes with semantic similarity ≥ 0.50"
     )
-    for i, node in enumerate(semantic_scored_nodes, 1):
-        print(f"  {i}. {node.text[:60]}... (similarity: {node.score:.3f})")
 
     return {"semantic_scored_nodes": semantic_scored_nodes}
 
 
 def expand_subgraph(state: RetrievalState) -> Dict:
     """Node to expand subgraph around semantic scored nodes."""
-    print("--- 🕸️ NODE: Subgraph Expansion ---")
 
     semantic_scored_nodes = state["semantic_scored_nodes"]
     expanded_subgraph = []
@@ -500,13 +490,11 @@ def expand_subgraph(state: RetrievalState) -> Dict:
                                 expanded_nodes.append(connected_node)
 
                     except Exception as e:
-                        print(f"  Error expanding node {node_id}: {e}")
+                        logger.debug(f"Error expanding node {node_id}: {e}")
 
     except Exception as e:
-        print(f"❌ General error in subgraph expansion: {e}")
+        logger.error(f"General error in subgraph expansion: {e}")
 
-    print(f"Subgraph expanded with {len(expanded_subgraph)} connections")
-    print(f"Found {len(expanded_nodes)} unique connected nodes")
     return {"expanded_subgraph": expanded_subgraph, "expanded_nodes": expanded_nodes}
 
 
@@ -514,111 +502,87 @@ def score_expanded_nodes_with_isrelevant(state: RetrievalState) -> Dict:
     """Score both semantic nodes and expanded nodes using isRelevant, then combine."""
     global CURRENT_SCORER_TYPE, USE_BATCH_PROCESSING, BATCH_SIZE
     scorer_type = CURRENT_SCORER_TYPE
-    
+
     batch_info = f"batch_size={BATCH_SIZE}" if USE_BATCH_PROCESSING else "individual"
-    print(f"--- 🔄 NODE: Score All Nodes with isRelevant ({scorer_type.value.upper()}, {batch_info}) ---")
+    logger.debug(
+        f"NODE: Score All Nodes with isRelevant ({scorer_type.value.upper()}, {batch_info})"
+    )
 
     semantic_scored_nodes = state["semantic_scored_nodes"]
     expanded_nodes = state.get("expanded_nodes", [])
     query_input = state["query_input"]
 
-    print(
-        f"Using {scorer_type.value} scoring | Semantic nodes to re-score: {len(semantic_scored_nodes)}, Expanded nodes to score: {len(expanded_nodes)}"
-    )
-
     # Convert expanded nodes to NodeInput format first
-    print("Converting expanded nodes to NodeInput format...")
     expanded_node_inputs = []
     for neo4j_node in expanded_nodes:
         try:
             node_input = convert_neo4j_node_to_node_input(neo4j_node)
             expanded_node_inputs.append(node_input)
         except Exception as e:
-            print(f"⚠️ Error converting expanded node: {e}")
+            logger.warning(f"Error converting expanded node: {e}")
             continue
 
     # Combine all nodes for processing
     all_nodes = semantic_scored_nodes + expanded_node_inputs
-    
+
     rescored_semantic_nodes = []
     expanded_scored_nodes = []
-    
+
     if USE_BATCH_PROCESSING and len(all_nodes) > 0:
-        print(f"🚀 Using batch processing for {len(all_nodes)} nodes")
         try:
             # Batch process all nodes at once
-            all_scores = batch_isRelevant(query_input, all_nodes, scorer_type, BATCH_SIZE)
-            
+            all_scores = batch_isRelevant(
+                query_input, all_nodes, scorer_type, BATCH_SIZE
+            )
+
             # Split scores back to semantic and expanded
-            semantic_scores = all_scores[:len(semantic_scored_nodes)]
-            expanded_scores = all_scores[len(semantic_scored_nodes):]
-            
+            semantic_scores = all_scores[: len(semantic_scored_nodes)]
+            expanded_scores = all_scores[len(semantic_scored_nodes) :]
+
             # Update semantic nodes with new scores
             for i, node in enumerate(semantic_scored_nodes):
                 if i < len(semantic_scores):
                     node.score = semantic_scores[i]
                     rescored_semantic_nodes.append(node)
-                    print(f"  Semantic node re-scored: {node.text[:50]}... -> {semantic_scores[i]:.3f}")
-            
+
             # Update expanded nodes with scores
             for i, node in enumerate(expanded_node_inputs):
                 if i < len(expanded_scores):
                     node.score = expanded_scores[i]
                     expanded_scored_nodes.append(node)
-                    print(f"  Expanded node scored: {node.text[:50]}... -> {expanded_scores[i]:.3f}")
-                    
+
         except Exception as e:
-            print(f"⚠️ Batch processing failed: {e}, falling back to individual processing")
+            logger.warning(
+                f"Batch processing failed: {e}, falling back to individual processing"
+            )
             USE_BATCH_PROCESSING = False  # Temporarily disable for this run
-    
+
     if not USE_BATCH_PROCESSING:
-        # Fallback to individual processing
-        print("🔄 Using individual node processing")
-        
-        # Re-score semantic nodes with isRelevant (replacing semantic similarity scores)
-        print(f"Re-scoring semantic nodes with isRelevant ({scorer_type.value}):")
         for node in semantic_scored_nodes:
             try:
                 relevance_score = isRelevant(query_input, node, scorer_type)
                 node.score = relevance_score  # Replace semantic similarity score with isRelevant score
                 rescored_semantic_nodes.append(node)
-                print(
-                    f"  Semantic node re-scored: {node.text[:50]}... -> {relevance_score:.3f}"
-                )
             except Exception as e:
-                print(f"⚠️ Error re-scoring semantic node: {e}")
+                logger.warning(f"Error re-scoring semantic node: {e}")
                 continue
 
-        # Score expanded nodes with isRelevant
-        print(f"Scoring expanded nodes with isRelevant ({scorer_type.value}):")
         for node_input in expanded_node_inputs:
             try:
                 relevance_score = isRelevant(query_input, node_input, scorer_type)
                 node_input.score = relevance_score
                 expanded_scored_nodes.append(node_input)
-                print(
-                    f"  Expanded node scored: {node_input.text[:50]}... -> {relevance_score:.3f}"
-                )
             except Exception as e:
-                print(f"⚠️ Error scoring expanded node: {e}")
+                logger.warning(f"Error scoring expanded node: {e}")
                 continue
 
     # Combine all nodes and select top ones based on isRelevant scores
     all_scored_nodes = rescored_semantic_nodes + expanded_scored_nodes
-    
-    # Sort all nodes by isRelevant score and take top 8
-    final_relevant_nodes = sorted(all_scored_nodes, key=lambda x: x.score, reverse=True)[:8]
 
-    print(
-        f"Final selection: Top 8 from {len(rescored_semantic_nodes)} semantic + {len(expanded_scored_nodes)} expanded = {len(final_relevant_nodes)} total"
-    )
-
-    # Create a set of semantic node IDs for efficient lookup
-    semantic_node_ids = {id(node) for node in rescored_semantic_nodes}
-
-    for i, node in enumerate(final_relevant_nodes, 1):
-        node_type = "semantic" if id(node) in semantic_node_ids else "expanded"
-        print(f"  {i}. [{node_type}] {node.text[:50]}... (isRelevant: {node.score:.3f})")
+    # Sort all nodes by isRelevant score and take top 15
+    final_relevant_nodes = sorted(
+        all_scored_nodes, key=lambda x: x.score, reverse=True
+    )[:15]
 
     return {
         "expanded_scored_nodes": expanded_scored_nodes,
@@ -628,7 +592,6 @@ def score_expanded_nodes_with_isrelevant(state: RetrievalState) -> Dict:
 
 def evaluate_context(state: RetrievalState) -> Dict:
     """Node to evaluate if collected context is sufficient."""
-    print("--- 🤔 NODE: Context Evaluation ---")
 
     class Decision(PydanticBaseModel):
         """Decision whether context is sufficient or needs revision."""
@@ -642,7 +605,6 @@ def evaluate_context(state: RetrievalState) -> Dict:
 
     # Prevent infinite loops: if we've already revised 2+ times, force sufficient
     if len(revision_history) >= 2:
-        print("🛑 Maximum revisions reached, forcing sufficient decision")
         return {"decision": "sufficient"}
 
     # Check if we have enough relevant nodes with high score
@@ -652,9 +614,6 @@ def evaluate_context(state: RetrievalState) -> Dict:
 
     # If we have at least one high-relevance node, consider sufficient
     if len(high_relevance_nodes) >= 1:
-        print(
-            f"✅ Found {len(high_relevance_nodes)} high-relevance nodes, considering sufficient"
-        )
         return {"decision": "sufficient"}
 
     context_summary = f"""
@@ -691,18 +650,15 @@ Evaluate whether the context is sufficient to answer the question."""
 
     try:
         decision = call_ollama_llm(system_prompt, user_prompt, Decision, timeout=15)
-        print(f"Decision: {decision.decision} - {decision.reasoning}")
         return {"decision": decision.decision}
     except Exception as e:
-        print(f"⚠️ Error in context evaluation: {e}")
+        logger.warning(f"Error in context evaluation: {e}")
         # Fallback: always consider sufficient to prevent loops
-        print("🔧 Fallback: context considered sufficient (prevent loops)")
         return {"decision": "sufficient"}
 
 
 def revise_question(state: RetrievalState) -> Dict:
     """Node to reformulate question if context is insufficient."""
-    print("--- ✍️ NODE: Question Revision ---")
 
     current_query = state["query_input"]
 
@@ -731,11 +687,10 @@ Reformulate the question to get better results from the knowledge graph:"""
         history = state.get("revision_history", [])
         history.append(state["question"])
 
-        print(f"📝 New question: {new_question.strip()}")
         return {"question": new_question.strip(), "revision_history": history}
 
     except Exception as e:
-        print(f"⚠️ Error in question revision: {e}")
+        logger.warning(f"Error in question revision: {e}")
         # Fallback: small modification to original question
         original = state["question"]
         fallback_question = f"Show me information about: {original}"
@@ -743,13 +698,11 @@ Reformulate the question to get better results from the knowledge graph:"""
         history = state.get("revision_history", [])
         history.append(state["question"])
 
-        print(f"🔧 Fallback question: {fallback_question}")
         return {"question": fallback_question, "revision_history": history}
 
 
 def generate_answer(state: RetrievalState) -> Dict:
     """Node to generate final answer."""
-    print("--- 💬 NODE: Final Answer Generation ---")
 
     final_relevant_nodes = state.get("final_relevant_nodes", [])
     query_input = state["query_input"]
@@ -791,29 +744,16 @@ Relevant entities: {", ".join(query_input.entities)}
 
 Provide a complete and accurate answer based on the knowledge graph:"""
 
-    print(f"🔍 DEBUG: About to call LLM with context length: {len(context_text)}")
-    print(f"🔍 DEBUG: System prompt length: {len(system_prompt)}")
-    print(f"🔍 DEBUG: User prompt length: {len(user_prompt)}")
-
     try:
         answer = call_ollama_llm(system_prompt, user_prompt)
-        print(f"🔍 DEBUG: LLM returned answer length: {len(answer) if answer else 0}")
-        if answer:
-            print(f"🔍 DEBUG: Answer preview: {answer[:100]}...")
-
         final_result = {
             "final_answer": answer.strip() if answer else "No answer generated"
         }
-        print(
-            f"🔍 DEBUG: Returning final_result with keys: {list(final_result.keys())}"
-        )
         return final_result
 
     except Exception as e:
-        print(f"⚠️ Error generating answer: {e}")
-        import traceback
-
-        traceback.print_exc()
+        logger.error(f"Error generating answer: {e}")
+        logger.exception("Full traceback:")
 
         # Fallback: basic response
         fallback_answer = f"""I'm sorry, I encountered an error generating a response from the knowledge graph. 
@@ -891,58 +831,24 @@ if __name__ == "__main__":
         "expanded_subgraph": [],
     }
 
-    print(f"🚀 Starting RAG system with Neo4j Knowledge Graph")
-    print(f"📝 Question: '{user_question}'")
-    print(f"🗄️ Knowledge Graph: {NEO4J_URI}")
-    print("=" * 80)
-
     try:
         # Test Neo4j connection
         with neo4j_driver.session() as session:
             result = session.run("MATCH (n) RETURN count(n) as total_nodes").single()
             total_nodes = result["total_nodes"]
-            print(f"✅ Connected to knowledge graph - {total_nodes} nodes available")
 
         # Instead of streaming, use invoke to get complete final state
-        print("🔄 Processing workflow (this may take a moment)...")
         final_state = app.invoke(inputs, {"recursion_limit": 15})
-
-        print("\n" + "=" * 80)
-        print("✅ PROCESSING COMPLETED!")
-        print("=" * 80)
 
         # Show workflow steps summary
         if "query_input" in final_state:
             qi = final_state["query_input"]
-            print(f"🎯 Intent detected: {qi.intent.value}")
-            print(f"🏷️ Entities found: {qi.entities}")
 
         if "semantic_scored_nodes" in final_state:
             semantic_nodes = final_state["semantic_scored_nodes"]
-            print(f"📊 Semantic similarity nodes selected: {len(semantic_nodes)}")
-            for i, node in enumerate(semantic_nodes, 1):
-                score = getattr(node, "score", 0)
-                print(
-                    f"   {i}. [SEMANTIC] {node.text[:60]}... (similarity: {score:.3f})"
-                )
 
         if "final_relevant_nodes" in final_state:
             final_relevant_nodes = final_state["final_relevant_nodes"]
-            print(f"📊 Final combined nodes selected: {len(final_relevant_nodes)}")
-            for i, node in enumerate(final_relevant_nodes, 1):
-                score = getattr(node, "score", 0)
-                print(f"   {i}. {node.text[:60]}... (score: {score:.3f})")
-
-        if "decision" in final_state:
-            print(f"🤔 Context evaluation: {final_state['decision']}")
-
-        print("\n" + "-" * 40)
-
-        # Extract and display final answer
-        if "final_answer" in final_state and final_state["final_answer"]:
-            print("\n🎯 FINAL ANSWER FROM KNOWLEDGE GRAPH:")
-            print("-" * 40)
-            print(final_state["final_answer"])
 
             # Show statistics
             if "final_relevant_nodes" in final_state:
@@ -950,45 +856,27 @@ if __name__ == "__main__":
                 semantic_nodes = final_state.get("semantic_scored_nodes", [])
                 expanded_nodes = final_state.get("expanded_nodes", [])
 
-                print(f"\n📈 STATISTICS:")
-                print(f"   • Semantic similarity nodes: {len(semantic_nodes)}")
-                print(f"   • Expanded nodes discovered: {len(expanded_nodes)}")
-                print(f"   • Final combined nodes: {len(final_relevant_nodes)}")
-
                 if semantic_nodes:
                     avg_semantic = sum(
                         getattr(n, "score", 0) for n in semantic_nodes
                     ) / len(semantic_nodes)
-                    print(f"   • Average initial semantic similarity: {avg_semantic:.3f}")
 
                 if final_relevant_nodes:
                     avg_final = sum(
                         getattr(n, "score", 0) for n in final_relevant_nodes
                     ) / len(final_relevant_nodes)
-                    print(f"   • Average final isRelevant score: {avg_final:.3f}")
 
-                if "expanded_subgraph" in final_state:
-                    print(
-                        f"   • Knowledge graph connections: {len(final_state['expanded_subgraph'])}"
-                    )
         else:
-            print("❌ Error: No final answer generated")
-            print(
-                f"🔍 Available keys in final_state: {list(final_state.keys()) if final_state else 'None'}"
+            logger.debug(
+                f"Available keys in final_state: {list(final_state.keys()) if final_state else 'None'}"
             )
             if final_state and "final_answer" in final_state:
-                print(f"🔍 Final answer content: '{final_state['final_answer']}'")
+                logger.debug(f"Final answer content: '{final_state['final_answer']}'")
 
     except Exception as e:
-        print(f"❌ Error during execution: {e}")
-        import traceback
-
-        traceback.print_exc()
+        logger.error(f"Error during execution: {e}")
+        logger.exception("Full traceback:")
 
     finally:
         # Close Neo4j connection
         neo4j_driver.close()
-
-    print("\n" + "=" * 80)
-    print("🔚 End of RAG processing with Knowledge Graph")
-    print("=" * 80)

@@ -1,5 +1,6 @@
 import pandas as pd
 import json
+import logging
 from pathlib import Path
 from neo4j import GraphDatabase
 # Import embedding generator from separate module
@@ -7,6 +8,10 @@ from embedding_generator import DynamicEmbeddingGenerator
 # Add other required imports
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 NEO4J_URI = "bolt://localhost:7687"
 NEO4J_USER = "neo4j"
@@ -56,14 +61,14 @@ class KnowledgeGraphBuilder:
                     "CREATE INDEX embedding_id_ann_index IF NOT EXISTS FOR (n:Annotation) ON (n.embedding_id)"
                 )
             except Exception as e:
-                print(f"Warning: Could not create embedding indexes: {e}")
+                logger.warning(f"Could not create embedding indexes: {e}")
                 # Try alternative syntax for older Neo4j versions
                 try:
                     session.run("CREATE INDEX ON :Product(embedding_id)")
                     session.run("CREATE INDEX ON :Document(embedding_id)")
                     session.run("CREATE INDEX ON :Annotation(embedding_id)")
                 except Exception as e2:
-                    print(f"Warning: Alternative index creation also failed: {e2}")
+                    logger.warning(f"Alternative index creation also failed: {e2}")
 
     def create_product_nodes(self, products_df, categories_df, models_df):
         with self.driver.session() as session:
@@ -156,6 +161,7 @@ class KnowledgeGraphBuilder:
                     session.run(query, **params)
 
                 except Exception as e:
+                    logger.warning(f"Failed to create product node for ProductID {product.get('ProductID', 'unknown')}: {e}")
                     continue
 
     def create_document_nodes(self, document_structure):
@@ -198,7 +204,7 @@ class KnowledgeGraphBuilder:
                                 with open(annotation_file, "r") as f:
                                     content = json.load(f)
                             except Exception as e:
-                                print(f"Error reading {annotation_file}: {e}")
+                                logger.error(f"Error reading {annotation_file}: {e}")
 
                         # Create embedding ID for annotation
                         annotation_embedding_id = f"Annotation_{annotation_file.stem}"
@@ -243,8 +249,6 @@ class KnowledgeGraphBuilder:
         if not self.embedding_generator:
             self.initialize_embeddings()
         
-        print("🔥 Generating embeddings for all data...")
-        
         # Process all data to generate embeddings
         self.embedding_generator.process_all_data(data_directory)
         
@@ -259,10 +263,8 @@ class KnowledgeGraphBuilder:
 
     def update_nodes_with_embedding_info(self):
         """Update Neo4j nodes with embedding indices and metadata"""
-        print("🔗 Linking Neo4j nodes with embeddings...")
-        
         if not self.embedding_generator:
-            print("⚠️ No embedding generator available")
+            logger.warning("No embedding generator available")
             return
         
         embeddings_metadata = self.embedding_generator.embeddings_data['metadata']
@@ -321,7 +323,7 @@ class KnowledgeGraphBuilder:
                         )
                 
                 except Exception as e:
-                    print(f"  Error updating node with embedding info: {e}")
+                    logger.error(f"Error updating node with embedding info: {e}")
                     continue
 
     def get_embedding_statistics(self):
@@ -466,8 +468,6 @@ class KnowledgeGraphBuilder:
         if not self.embedding_generator:
             return "No embeddings available"
         
-        print(f"Hybrid search for: '{search_term}'")
-        
         # Generate embedding for search term
         search_embedding = self.embedding_generator.model.encode([search_term])
         embeddings_matrix = np.array(self.embedding_generator.embeddings_data['embeddings'])
@@ -556,13 +556,6 @@ def analyze_ingested_documents():
                 documents[base_name] = {"pdf": None, "annotations": []}
             documents[base_name]["annotations"].append(file)
 
-    for doc_name, doc_data in documents.items():
-        print(f"Documento: {doc_name}")
-        print(f"  PDF: {'Sì' if doc_data['pdf'] else 'Mancante'}")
-        print(f"  Annotazioni: {len(doc_data['annotations'])}")
-        for ann in doc_data["annotations"]:
-            print(f"    - {ann.name}")
-
     return documents
 
 # Utility functions that can be imported
@@ -591,104 +584,58 @@ if __name__ == "__main__":
     if connected:
         build_graph = True
     else:
-        print(f"Error: {message}")
-        print("docker run -p 7474:7474 -p 7687:7687 -d --env NEO4J_AUTH=neo4j/password neo4j:latest")
+        logger.error(f"Error: {message}")
+        logger.error("docker run -p 7474:7474 -p 7687:7687 -d --env NEO4J_AUTH=neo4j/password neo4j:latest")
         build_graph = False
 
     if build_graph:
         try:
             kg_builder = KnowledgeGraphBuilder(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)
 
-            print("🧹 Cleaning database...")
             kg_builder.clear_database()
 
-            print("📊 Creating indexes...")
             kg_builder.create_indexes()
 
-            print("🏗️ Creating product nodes...")
             kg_builder.create_product_nodes(
                 csv_data["products"], csv_data["categories"], csv_data["models"]
             )
 
-            print("📄 Creating document nodes...")
             kg_builder.create_document_nodes(document_structure)
 
-            print("🔗 Creating product relationships...")
             kg_builder.create_product_relationships()
 
-            print("📋 Connecting products with documents...")
             kg_builder.create_product_document_relationships()
 
-            print("🧠 Generating embeddings for all nodes...")
             embeddings_path = kg_builder.generate_and_store_embeddings("data")
             
-            print("📊 Graph and embedding statistics:")
             graph_stats = kg_builder.get_graph_statistics()
             embedding_stats = kg_builder.get_embedding_statistics()
             
-            print(f"   Graph Nodes: {graph_stats['nodes']}")
-            print(f"   Graph Relationships: {graph_stats['relationships']}")
-            print(f"   Total Embeddings: {embedding_stats['total_embeddings']}")
-            print(f"   Embedding Dimension: {embedding_stats['embedding_dimension']}")
-            print(f"   Content Types: {embedding_stats['content_types']}")
-            print(f"   Embeddings saved to: {embeddings_path}")
-
-            print("=== KNOWLEDGE GRAPH + EMBEDDINGS COMPLETED! ===")
-            print("Neo4j Browser: http://localhost:7474")
-            print("Embeddings file: data/knowledge_graph_embeddings.pkl")
-            print()
-            print("Available capabilities:")
-            print("  • Graph queries and traversals via Neo4j")
-            print("  • Semantic similarity search via embeddings")
-            print("  • Hybrid search combining both approaches")
-            print("  • Each node has embedding_id and embedding_index properties")
-            
-            # Demo hybrid search
-            print("\n HYBRID SEARCH DEMO:")
-            print("-" * 40)
+            logger.info(f"   Graph Nodes: {graph_stats['nodes']}")
+            logger.info(f"   Graph Relationships: {graph_stats['relationships']}")
+            logger.info(f"   Total Embeddings: {embedding_stats['total_embeddings']}")
+            logger.info(f"   Embedding Dimension: {embedding_stats['embedding_dimension']}")
+            logger.info(f"   Content Types: {embedding_stats['content_types']}")
+            logger.info(f"   Embeddings saved to: {embeddings_path}")
             
             demo_searches = ["mountain bike", "black frame", "road bicycle"]
             for search_term in demo_searches:
                 try:
                     results = kg_builder.hybrid_search_example(search_term, limit=3)
-                    print(f"\n🔍 Results for '{search_term}':")
-                    for i, item in enumerate(results, 1):
-                        print(f"  {i}. {item['name']} (${item['price']:.2f})")
-                        print(f"     Category: {item['category']}")
-                        print(f"     Similarity: {item['similarity_score']:.3f}")
-                        if item['related_products']:
-                            print(f"     Related: {', '.join(item['related_products'][:2])}")
-                        print()
                 except Exception as e:
-                    print(f"  Error in demo search: {e}")
+                    logger.error(f"  Error in demo search: {e}")
             
             kg_builder.close()
             
         except Exception as e:
-            print(f"❌ Error: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error(f"Error: {e}")
+            logger.exception("Full traceback:")
     else:
-        print("❌ Neo4j is not connected.")
-        print("To start Neo4j with Docker:")
-        print(
+        logger.error("Neo4j is not connected.")
+        logger.error("To start Neo4j with Docker:")
+        logger.error(
             "docker run -p 7474:7474 -p 7687:7687 -d --env NEO4J_AUTH=neo4j/password neo4j:latest"
         )
-
-    print("\n" + "="*60)
-    print("🎉 SCRIPT COMPLETED")
-    print("="*60)
-    print("If successful, you now have:")
-    print("📊 Neo4j knowledge graph with all your data")
-    print("🧠 Embeddings for semantic search")
-    print("🔗 Hybrid search capabilities")
-    print("📁 Saved embeddings file: data/knowledge_graph_embeddings.pkl")
-    print()
-    print("Next steps:")
-    print("1. Explore the graph at http://localhost:7474")
-    print("2. Use the embeddings for semantic search")
-    print("3. Try the hybrid search in your applications")
-    print("4. Check the notebook for RAG system examples")
 
 
 
