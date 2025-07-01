@@ -34,6 +34,74 @@ class NodeInput:
     entities: List[str]
 
 
+@dataclass
+class CompositeWeights:
+    """Configuration class for composite scoring weights.
+    
+    Allows customization of how different metrics are weighted in the final score.
+    All weights should sum to 1.0 for proper normalization.
+    """
+    semantic_similarity: float = 0.3
+    llm_judge: float = 0.45
+    entity_match: float = 0.15
+    node_type_priority: float = 0.10
+    
+    def __post_init__(self):
+        """Validate weights after initialization."""
+        total = self.semantic_similarity + self.llm_judge + self.entity_match + self.node_type_priority
+        if abs(total - 1.0) > 0.001:  # Allow small floating point errors
+            raise ValueError(f"Weights must sum to 1.0, got {total}")
+        
+        # Ensure all weights are non-negative
+        for field_name in ['semantic_similarity', 'llm_judge', 'entity_match', 'node_type_priority']:
+            weight = getattr(self, field_name)
+            if weight < 0:
+                raise ValueError(f"Weight {field_name} must be non-negative, got {weight}")
+    
+    @classmethod
+    def create_balanced(cls) -> 'CompositeWeights':
+        """Create balanced weights (all metrics equal)."""
+        return cls(0.25, 0.25, 0.25, 0.25)
+    
+    @classmethod
+    def create_semantic_focused(cls) -> 'CompositeWeights':
+        """Create weights that prioritize semantic similarity."""
+        return cls(0.6, 0.2, 0.1, 0.1)
+    
+    @classmethod
+    def create_llm_focused(cls) -> 'CompositeWeights':
+        """Create weights that prioritize LLM judgment."""
+        return cls(0.2, 0.6, 0.1, 0.1)
+    
+    @classmethod
+    def create_entity_focused(cls) -> 'CompositeWeights':
+        """Create weights that prioritize entity matching."""
+        return cls(0.2, 0.2, 0.4, 0.2)
+    
+    @classmethod
+    def from_dict(cls, weights: Dict[str, float]) -> 'CompositeWeights':
+        """Create weights from a dictionary."""
+        return cls(
+            semantic_similarity=weights.get('semantic_similarity', 0.3),
+            llm_judge=weights.get('llm_judge', 0.45),
+            entity_match=weights.get('entity_match', 0.15),
+            node_type_priority=weights.get('node_type_priority', 0.10)
+        )
+    
+    def to_dict(self) -> Dict[str, float]:
+        """Convert weights to dictionary."""
+        return {
+            'semantic_similarity': self.semantic_similarity,
+            'llm_judge': self.llm_judge,
+            'entity_match': self.entity_match,
+            'node_type_priority': self.node_type_priority
+        }
+
+
+# Default weights - maintains backward compatibility
+DEFAULT_COMPOSITE_WEIGHTS = CompositeWeights()
+
+
 class ScorerType(Enum):
     COMPOSITE = "composite"
     PARALLEL = "parallel"
@@ -126,61 +194,20 @@ def input_node() -> NodeInput:
     )
 
 
-def semantic_similarity(query: QueryInput, node: NodeInput) -> float:
+def batch_semantic_similarity(query: QueryInput, nodes: List[NodeInput]) -> List[float]:
+    """Batch semantic similarity calculation using vectorized operations."""
+    if not nodes:
+        return []
+
+    # Vectorized similarity calculation
     query_emb = query.embeddings.reshape(1, -1)
-    node_emb = node.embeddings.reshape(1, -1)
-    similarity = cosine_similarity(query_emb, node_emb)[0][0]
-    return (similarity + 1) / 2
+    node_embs = np.array([node.embeddings for node in nodes])
 
+    similarities = cosine_similarity(query_emb, node_embs)[0]
+    # Normalize to 0-1 range
+    normalized_similarities = [(sim + 1) / 2 for sim in similarities]
 
-def llm_judge(query: QueryInput, node: NodeInput) -> float:
-    prompt = f"""
-            User Query: {query.text}
-            
-            Content: {node.text}
-            
-            """
-
-    system_prompt = """You are an expert relevance evaluator for a knowledge graph system. Your task is to assess how relevant a piece of content is to a user's query.
-                    Scoring Guidelines:
-                    - 0.9-1.0: Perfect match - directly answers the query or provides exactly what's requested
-                    - 0.8-0.9: Highly relevant - very useful for answering the query, contains key information
-                    - 0.6-0.7: Moderately relevant - somewhat useful, related but not central to the query
-                    - 0.4-0.5: Marginally relevant - tangentially related, might provide context
-                    - 0.2-0.3: Low relevance - weakly related, unlikely to be useful
-                    - 0.0-0.1: Not relevant - completely unrelated to the query
-
-                    Consider these factors:
-                    1. Direct topic alignment (does the content address the query topic?)
-                    2. Specificity match (does it match specific criteria like price, color, features?)
-                    3. Content type appropriateness (product info for product queries, docs for technical questions)
-                    4. Completeness (does it provide comprehensive information?)
-
-                    Examples:
-
-                    Query: "Find red mountain bikes under $1000"
-                    Content: "Premium Red Mountain Bike - Trail Blazer X1 with advanced suspension and lightweight frame, perfect for off-road adventures under $900"
-                    Score: 0.95 (Perfect match - red mountain bike under $1000)
-
-                    Query: "Find red mountain bikes under $1000"  
-                    Content: "Blue Mountain Bike - Rugged terrain specialist with 21-speed gear system, priced at $750"
-                    Score: 0.7 (Good price and category match, but wrong color)
-
-                    Now evaluate the given query and content, considering semantic relevance, topic alignment, and potential usefulness:"""
-
-    client = OpenAI(
-        base_url=OLLAMA_BASE_URL,  # "http://localhost:11434/v1",
-        api_key=OLLAMA_KEY,
-    )
-    response = client.beta.chat.completions.parse(
-        model=OLLAMA_MODEL,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt},
-        ],
-        response_format=RelevanceScore,
-    )
-    return response.choices[0].message.parsed.score
+    return normalized_similarities
 
 
 def batch_llm_judge(query: QueryInput, nodes: List[NodeInput]) -> List[float]:
@@ -256,56 +283,16 @@ def batch_llm_judge(query: QueryInput, nodes: List[NodeInput]) -> List[float]:
         return scores
 
     except Exception as e:
-        # Fallback to individual calls
-        return [llm_judge(query, node) for node in nodes]
-
-
-def entity_match(query: QueryInput, node: NodeInput) -> float:
-    query_entities = set(query.entities)
-    node_entities = set(node.entities)
-
-    # Handle case when query has no entities
-    if len(query_entities) == 0:
-        # If both query and node have no entities, return neutral score
-        if len(node_entities) == 0:
-            return 0.5
-        # If only query has no entities but node has some, return low score
-        else:
-            return 0.1
-
-    # Normal case: calculate intersection ratio
-    match_ratio = len(query_entities.intersection(node_entities)) / len(query_entities)
-    return match_ratio
-
-
-def node_type_priority(query: QueryInput, node: NodeInput) -> float:
-    query_intent = query.intent
-    node_type = node.node_type
-
-    # Handle case when node_type is not in priority_matrix
-    if node_type not in priority_matrix[query_intent]:
-        # Use 'unknown' as fallback
-        priority_score = priority_matrix[query_intent]["unknown"]
-    else:
-        priority_score = priority_matrix[query_intent][node_type]
-
-    return priority_score
-
-
-def batch_semantic_similarity(query: QueryInput, nodes: List[NodeInput]) -> List[float]:
-    """Batch semantic similarity calculation using vectorized operations."""
-    if not nodes:
-        return []
-
-    # Vectorized similarity calculation
-    query_emb = query.embeddings.reshape(1, -1)
-    node_embs = np.array([node.embeddings for node in nodes])
-
-    similarities = cosine_similarity(query_emb, node_embs)[0]
-    # Normalize to 0-1 range
-    normalized_similarities = [(sim + 1) / 2 for sim in similarities]
-
-    return normalized_similarities
+        # Fallback: use simple heuristics for each node
+        fallback_scores = []
+        for node in nodes:
+            # Simple fallback based on text overlap
+            query_words = set(query.text.lower().split())
+            node_words = set(node.text.lower().split())
+            overlap = len(query_words.intersection(node_words))
+            score = min(overlap / max(len(query_words), 1) * 0.8 + 0.1, 0.9)
+            fallback_scores.append(score)
+        return fallback_scores
 
 
 def batch_entity_match(query: QueryInput, nodes: List[NodeInput]) -> List[float]:
@@ -357,6 +344,26 @@ def batch_node_type_priority(query: QueryInput, nodes: List[NodeInput]) -> List[
     return scores
 
 
+def semantic_similarity(query: QueryInput, node: NodeInput) -> float:
+    """Calculate semantic similarity for a single node (uses batch processing internally)."""
+    return batch_semantic_similarity(query, [node])[0]
+
+
+def llm_judge(query: QueryInput, node: NodeInput) -> float:
+    """Calculate LLM judgment for a single node (uses batch processing internally)."""
+    return batch_llm_judge(query, [node])[0]
+
+
+def entity_match(query: QueryInput, node: NodeInput) -> float:
+    """Calculate entity match for a single node (uses batch processing internally)."""
+    return batch_entity_match(query, [node])[0]
+
+
+def node_type_priority(query: QueryInput, node: NodeInput) -> float:
+    """Calculate node type priority for a single node (uses batch processing internally)."""
+    return batch_node_type_priority(query, [node])[0]
+
+
 def parallel_score(query: QueryInput, node: NodeInput) -> float:
     return max(
         semantic_similarity(query, node),
@@ -374,45 +381,43 @@ def router_score(
     return sum(metric(query, node) for metric in metrics) / len(metrics)
 
 
-def composite_score(query: QueryInput, node: NodeInput) -> float:
+def composite_score(query: QueryInput, node: NodeInput, weights: CompositeWeights = DEFAULT_COMPOSITE_WEIGHTS) -> float:
+    """
+    Calculate composite relevance score using weighted combination of metrics.
+    
+    Args:
+        query: Query input
+        node: Node input
+        weights: Composite weights configuration (uses defaults if not provided)
+    
+    Returns:
+        Weighted composite score between 0.0 and 1.0
+    """
     return (
-        semantic_similarity(query, node) * 0.4
-        + llm_judge(query, node) * 0.3
-        + entity_match(query, node) * 0.15
-        + node_type_priority(query, node) * 0.15
+        semantic_similarity(query, node) * weights.semantic_similarity
+        + llm_judge(query, node) * weights.llm_judge
+        + entity_match(query, node) * weights.entity_match
+        + node_type_priority(query, node) * weights.node_type_priority
     )
 
 
-def isRelevant(query: QueryInput, node: NodeInput, scorer_type: ScorerType) -> float:
-    if scorer_type == ScorerType.COMPOSITE:
-        return composite_score(query, node)
-    elif scorer_type == ScorerType.PARALLEL:
-        return parallel_score(query, node)
-    elif scorer_type == ScorerType.ROUTER:
-        return router_score(
-            query, node, [semantic_similarity, llm_judge, node_type_priority]
-        )
-    elif scorer_type == ScorerType.ROUTER_ALL:
-        return router_score(
-            query,
-            node,
-            [semantic_similarity, llm_judge, entity_match, node_type_priority],
-        )
-    elif scorer_type == ScorerType.ROUTER_TWO_SEM_LLM:
-        return router_score(query, node, [semantic_similarity, llm_judge])
-    elif scorer_type == ScorerType.ROUTER_TWO_ENT_TYPE:
-        return router_score(query, node, [entity_match, node_type_priority])
-    elif scorer_type == ScorerType.ROUTER_SINGLE_SEM:
-        return semantic_similarity(query, node)
-    elif scorer_type == ScorerType.ROUTER_SINGLE_LLM:
-        return llm_judge(query, node)
-    elif scorer_type == ScorerType.ROUTER_SINGLE_ENT:
-        return entity_match(query, node)
-    elif scorer_type == ScorerType.ROUTER_SINGLE_TYPE:
-        return node_type_priority(query, node)
-    else:
-        # Fallback to composite
-        return composite_score(query, node)
+def isRelevant(query: QueryInput, node: NodeInput, scorer_type: ScorerType, weights: CompositeWeights = DEFAULT_COMPOSITE_WEIGHTS) -> float:
+    """
+    Calculate relevance score using specified scoring strategy.
+    
+    This function now internally uses batch processing for consistency and efficiency.
+    
+    Args:
+        query: Query input
+        node: Node input  
+        scorer_type: Scoring approach to use
+        weights: Composite weights (only used for COMPOSITE scorer type)
+    
+    Returns:
+        Relevance score between 0.0 and 1.0
+    """
+    # Use batch processing internally for consistency
+    return batch_isRelevant(query, [node], scorer_type, batch_size=1, weights=weights)[0]
 
 
 def batch_isRelevant(
@@ -420,6 +425,7 @@ def batch_isRelevant(
     nodes: List[NodeInput],
     scorer_type: ScorerType,
     batch_size: int = 10,
+    weights: CompositeWeights = DEFAULT_COMPOSITE_WEIGHTS,
 ) -> List[float]:
     """
     Batch version of isRelevant - processes multiple nodes efficiently.
@@ -429,6 +435,7 @@ def batch_isRelevant(
         nodes: List of nodes to score
         scorer_type: Scoring approach to use
         batch_size: Size of batches for LLM calls (default 10)
+        weights: Composite weights for scoring
 
     Returns:
         List of relevance scores for each node
@@ -469,7 +476,7 @@ def batch_isRelevant(
 
         if scorer_type == ScorerType.COMPOSITE:
             score = (
-                sem_score * 0.4 + llm_score * 0.3 + ent_score * 0.15 + type_score * 0.15
+                sem_score * weights.semantic_similarity + llm_score * weights.llm_judge + ent_score * weights.entity_match + type_score * weights.node_type_priority
             )
         elif scorer_type == ScorerType.PARALLEL:
             score = max(sem_score, llm_score, ent_score, type_score)
@@ -484,7 +491,7 @@ def batch_isRelevant(
         else:
             # Fallback to composite
             score = (
-                sem_score * 0.4 + llm_score * 0.3 + ent_score * 0.15 + type_score * 0.15
+                sem_score * weights.semantic_similarity + llm_score * weights.llm_judge + ent_score * weights.entity_match + type_score * weights.node_type_priority
             )
 
         final_scores.append(score)

@@ -12,6 +12,8 @@ from isRelevant import (
     NodeInput,
     ScorerType,
     QueryIntent,
+    CompositeWeights,
+    DEFAULT_COMPOSITE_WEIGHTS,
 )
 import numpy as np
 from openai import OpenAI
@@ -47,11 +49,13 @@ ollama_client = OpenAI(
 # Global scorer configuration
 CURRENT_SCORER_TYPE = ScorerType.COMPOSITE
 
+# Global composite weights configuration
+CURRENT_COMPOSITE_WEIGHTS = DEFAULT_COMPOSITE_WEIGHTS
+
 # Global random seed for consistent sampling
 RANDOM_SEED = None
 
 # Global batch processing configuration
-USE_BATCH_PROCESSING = True
 BATCH_SIZE = 10
 
 # Utility functions to configure global settings
@@ -61,25 +65,30 @@ def set_scorer_type(scorer_type: ScorerType):
     CURRENT_SCORER_TYPE = scorer_type
 
 
+def set_composite_weights(weights: CompositeWeights):
+    """Set the global composite weights for COMPOSITE scorer type."""
+    global CURRENT_COMPOSITE_WEIGHTS
+    CURRENT_COMPOSITE_WEIGHTS = weights
+
+
 def set_random_seed(seed: int):
     """Set the global random seed for consistent node sampling."""
     global RANDOM_SEED
     RANDOM_SEED = seed
 
 
-def set_batch_processing(enabled: bool, batch_size: int = 10):
-    """Configure batch processing settings."""
-    global USE_BATCH_PROCESSING, BATCH_SIZE
-    USE_BATCH_PROCESSING = enabled
+def set_batch_size(batch_size: int = 10):
+    """Configure batch size for processing. Always uses batch processing."""
+    global BATCH_SIZE
     BATCH_SIZE = batch_size
 
 
 def reset_global_config():
     """Reset global configuration to defaults."""
-    global CURRENT_SCORER_TYPE, RANDOM_SEED, USE_BATCH_PROCESSING, BATCH_SIZE
+    global CURRENT_SCORER_TYPE, CURRENT_COMPOSITE_WEIGHTS, RANDOM_SEED, BATCH_SIZE
     CURRENT_SCORER_TYPE = ScorerType.COMPOSITE
+    CURRENT_COMPOSITE_WEIGHTS = DEFAULT_COMPOSITE_WEIGHTS
     RANDOM_SEED = None
-    USE_BATCH_PROCESSING = True
     BATCH_SIZE = 10
 
 
@@ -380,10 +389,9 @@ def sample_neo4j_nodes(state: RetrievalState) -> Dict:
 
 def score_semantic_similarity(state: RetrievalState) -> Dict:
     """Node to score sampled nodes using semantic similarity and select top 5."""
-    global USE_BATCH_PROCESSING, BATCH_SIZE
-
-    batch_info = f"batch_size={BATCH_SIZE}" if USE_BATCH_PROCESSING else "individual"
-    logger.debug(f"NODE: Semantic Similarity Scoring ({batch_info})")
+    global BATCH_SIZE
+    
+    logger.debug(f"NODE: Semantic Similarity Scoring (batch_size={BATCH_SIZE})")
 
     sampled_nodes = state["sampled_nodes"]
     query_input = state["query_input"]
@@ -394,44 +402,40 @@ def score_semantic_similarity(state: RetrievalState) -> Dict:
         node_input = convert_neo4j_node_to_node_input(neo4j_node)
         candidate_nodes.append(node_input)
 
-    # Score nodes using batch or individual processing
-    if USE_BATCH_PROCESSING and len(candidate_nodes) > 0:
-        try:
-            from isRelevant import batch_semantic_similarity
+    if not candidate_nodes:
+        logger.warning("No candidate nodes to score")
+        return {"semantic_scored_nodes": []}
 
-            similarity_scores = batch_semantic_similarity(query_input, candidate_nodes)
+    try:
+        # Always use batch semantic similarity processing
+        from isRelevant import batch_semantic_similarity
+        
+        similarity_scores = batch_semantic_similarity(query_input, candidate_nodes)
 
-            # Assign scores to nodes
-            for node, score in zip(candidate_nodes, similarity_scores):
-                node.score = score
+        # Assign scores to nodes
+        for node, score in zip(candidate_nodes, similarity_scores):
+            node.score = score
 
-            scored_nodes = candidate_nodes
+        scored_nodes = candidate_nodes
 
-        except Exception as e:
-            USE_BATCH_PROCESSING = False  # Temporarily disable for this run
+        # Sort by similarity and apply threshold
+        sorted_nodes = sorted(scored_nodes, key=lambda x: x.score, reverse=True)
 
-    if not USE_BATCH_PROCESSING:
-        # Fallback to individual processing
-        scored_nodes = []
-        for node in candidate_nodes:
-            # Use semantic_similarity function from isRelevant.py
-            from isRelevant import semantic_similarity
+        # Take top 5 with minimum threshold of 0.50
+        semantic_scored_nodes = [node for node in sorted_nodes[:5] if node.score >= 0.50]
 
-            similarity_score = semantic_similarity(query_input, node)
-            node.score = similarity_score
-            scored_nodes.append(node)
+        logger.info(
+            f"Selected {len(semantic_scored_nodes)} nodes with semantic similarity ≥ 0.50"
+        )
 
-    # Sort by similarity and apply threshold
-    sorted_nodes = sorted(scored_nodes, key=lambda x: x.score, reverse=True)
+        return {"semantic_scored_nodes": semantic_scored_nodes}
 
-    # Take top 5 with minimum threshold of 0.50
-    semantic_scored_nodes = [node for node in sorted_nodes[:5] if node.score >= 0.50]
-
-    logger.info(
-        f"Selected {len(semantic_scored_nodes)} nodes with semantic similarity ≥ 0.50"
-    )
-
-    return {"semantic_scored_nodes": semantic_scored_nodes}
+    except Exception as e:
+        logger.error(f"Batch semantic similarity processing failed: {e}")
+        logger.exception("Full traceback:")
+        
+        # Return empty results rather than falling back
+        return {"semantic_scored_nodes": []}
 
 
 def expand_subgraph(state: RetrievalState) -> Dict:
@@ -500,12 +504,11 @@ def expand_subgraph(state: RetrievalState) -> Dict:
 
 def score_expanded_nodes_with_isrelevant(state: RetrievalState) -> Dict:
     """Score both semantic nodes and expanded nodes using isRelevant, then combine."""
-    global CURRENT_SCORER_TYPE, USE_BATCH_PROCESSING, BATCH_SIZE
+    global CURRENT_SCORER_TYPE, CURRENT_COMPOSITE_WEIGHTS, BATCH_SIZE
     scorer_type = CURRENT_SCORER_TYPE
 
-    batch_info = f"batch_size={BATCH_SIZE}" if USE_BATCH_PROCESSING else "individual"
     logger.debug(
-        f"NODE: Score All Nodes with isRelevant ({scorer_type.value.upper()}, {batch_info})"
+        f"NODE: Score All Nodes with isRelevant ({scorer_type.value.upper()}, batch_size={BATCH_SIZE})"
     )
 
     semantic_scored_nodes = state["semantic_scored_nodes"]
@@ -525,69 +528,61 @@ def score_expanded_nodes_with_isrelevant(state: RetrievalState) -> Dict:
     # Combine all nodes for processing
     all_nodes = semantic_scored_nodes + expanded_node_inputs
 
-    rescored_semantic_nodes = []
-    expanded_scored_nodes = []
+    if not all_nodes:
+        logger.warning("No nodes to score")
+        return {
+            "expanded_scored_nodes": [],
+            "final_relevant_nodes": [],
+        }
 
-    if USE_BATCH_PROCESSING and len(all_nodes) > 0:
-        try:
-            # Batch process all nodes at once
-            all_scores = batch_isRelevant(
-                query_input, all_nodes, scorer_type, BATCH_SIZE
-            )
+    try:
+        # Always use batch processing - much more efficient
+        all_scores = batch_isRelevant(
+            query_input, all_nodes, scorer_type, BATCH_SIZE, CURRENT_COMPOSITE_WEIGHTS
+        )
 
-            # Split scores back to semantic and expanded
-            semantic_scores = all_scores[: len(semantic_scored_nodes)]
-            expanded_scores = all_scores[len(semantic_scored_nodes) :]
+        # Split scores back to semantic and expanded
+        semantic_scores = all_scores[: len(semantic_scored_nodes)]
+        expanded_scores = all_scores[len(semantic_scored_nodes) :]
 
-            # Update semantic nodes with new scores
-            for i, node in enumerate(semantic_scored_nodes):
-                if i < len(semantic_scores):
-                    node.score = semantic_scores[i]
-                    rescored_semantic_nodes.append(node)
-
-            # Update expanded nodes with scores
-            for i, node in enumerate(expanded_node_inputs):
-                if i < len(expanded_scores):
-                    node.score = expanded_scores[i]
-                    expanded_scored_nodes.append(node)
-
-        except Exception as e:
-            logger.warning(
-                f"Batch processing failed: {e}, falling back to individual processing"
-            )
-            USE_BATCH_PROCESSING = False  # Temporarily disable for this run
-
-    if not USE_BATCH_PROCESSING:
-        for node in semantic_scored_nodes:
-            try:
-                relevance_score = isRelevant(query_input, node, scorer_type)
-                node.score = relevance_score  # Replace semantic similarity score with isRelevant score
+        # Update semantic nodes with new scores
+        rescored_semantic_nodes = []
+        for i, node in enumerate(semantic_scored_nodes):
+            if i < len(semantic_scores):
+                node.score = semantic_scores[i]
                 rescored_semantic_nodes.append(node)
-            except Exception as e:
-                logger.warning(f"Error re-scoring semantic node: {e}")
-                continue
 
-        for node_input in expanded_node_inputs:
-            try:
-                relevance_score = isRelevant(query_input, node_input, scorer_type)
-                node_input.score = relevance_score
-                expanded_scored_nodes.append(node_input)
-            except Exception as e:
-                logger.warning(f"Error scoring expanded node: {e}")
-                continue
+        # Update expanded nodes with scores
+        expanded_scored_nodes = []
+        for i, node in enumerate(expanded_node_inputs):
+            if i < len(expanded_scores):
+                node.score = expanded_scores[i]
+                expanded_scored_nodes.append(node)
 
-    # Combine all nodes and select top ones based on isRelevant scores
-    all_scored_nodes = rescored_semantic_nodes + expanded_scored_nodes
+        # Combine all nodes and select top ones based on isRelevant scores
+        all_scored_nodes = rescored_semantic_nodes + expanded_scored_nodes
 
-    # Sort all nodes by isRelevant score and take top 15
-    final_relevant_nodes = sorted(
-        all_scored_nodes, key=lambda x: x.score, reverse=True
-    )[:15]
+        # Sort all nodes by isRelevant score and take top 15
+        final_relevant_nodes = sorted(
+            all_scored_nodes, key=lambda x: x.score, reverse=True
+        )[:15]
 
-    return {
-        "expanded_scored_nodes": expanded_scored_nodes,
-        "final_relevant_nodes": final_relevant_nodes,
-    }
+        logger.info(f"Successfully scored {len(all_nodes)} nodes using batch processing")
+
+        return {
+            "expanded_scored_nodes": expanded_scored_nodes,
+            "final_relevant_nodes": final_relevant_nodes,
+        }
+
+    except Exception as e:
+        logger.error(f"Batch processing failed: {e}")
+        logger.exception("Full traceback:")
+        
+        # Return empty results rather than falling back to individual processing
+        return {
+            "expanded_scored_nodes": [],
+            "final_relevant_nodes": semantic_scored_nodes[:5],  # Return top semantic nodes as fallback
+        }
 
 
 def evaluate_context(state: RetrievalState) -> Dict:
@@ -849,6 +844,11 @@ if __name__ == "__main__":
 
         if "final_relevant_nodes" in final_state:
             final_relevant_nodes = final_state["final_relevant_nodes"]
+
+        if "final_answer" in final_state and final_state["final_answer"]:
+            print("\nFINAL ANSWER FROM KNOWLEDGE GRAPH:")
+            print("-" * 40)
+            print(final_state["final_answer"])
 
             # Show statistics
             if "final_relevant_nodes" in final_state:
