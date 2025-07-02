@@ -262,6 +262,7 @@ def batch_llm_judge(query: QueryInput, nodes: List[NodeInput]) -> List[float]:
         client = OpenAI(
             base_url=OLLAMA_BASE_URL,  # "http://localhost:11434/v1",
             api_key=OLLAMA_KEY,
+            timeout=15,  # Add 15 second timeout for batch LLM calls
         )
         response = client.beta.chat.completions.parse(
             model=OLLAMA_MODEL,
@@ -270,6 +271,7 @@ def batch_llm_judge(query: QueryInput, nodes: List[NodeInput]) -> List[float]:
                 {"role": "user", "content": prompt},
             ],
             response_format=BatchRelevanceScore,
+            timeout=15,  # Also set request-level timeout
         )
 
         scores = response.choices[0].message.parsed.scores

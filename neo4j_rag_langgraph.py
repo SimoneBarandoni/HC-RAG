@@ -159,10 +159,10 @@ def call_ollama_llm(
 class RetrievalState(TypedDict):
     question: str
     query_input: QueryInput  # Structured query for relevance scoring
-    sampled_nodes: List[Dict]  # 10 random nodes from Neo4j graph
+    sampled_nodes: List[Dict]  # 20 random nodes from Neo4j graph
     semantic_scored_nodes: List[
         NodeInput
-    ]  # Top 5 nodes selected by semantic similarity
+    ]  # Nodes selected by semantic similarity (score >= 0.60)
     expanded_nodes: List[Dict]  # Nodes found through subgraph expansion
     expanded_scored_nodes: List[NodeInput]  # Expanded nodes scored with isRelevant
     final_relevant_nodes: List[NodeInput]  # Final combined list of relevant nodes
@@ -233,30 +233,65 @@ Analyze the question and return the most appropriate intent with confidence and 
         return QueryIntent.PRODUCT_SEARCH
 
 
+class EntityExtractionResponse(PydanticBaseModel):
+    """Structured response for entity extraction."""
+    
+    entities: List[str] = Field(
+        description="List of relevant entities extracted from the query"
+    )
+    reasoning: str = Field(
+        description="Brief explanation of why these entities were extracted"
+    )
+
+
 def extract_entities_from_query(question: str) -> List[str]:
-    """Extract entities from query (simplified version)."""
-    # Simplified implementation - use more sophisticated NER in production
-    import re
+    """Extract entities from query using LLM-based named entity recognition."""
+    
+    system_prompt = """You are an expert in named entity recognition for product search queries. Your task is to extract relevant entities from user questions that would be useful for matching against product data.
 
-    # Extract common product keywords
-    entities = []
+Focus on extracting these types of entities:
 
-    # Colors
-    colors = re.findall(
-        r"\b(red|blue|green|black|white|rosso|blu|verde|nero|bianco)\b",
-        question.lower(),
-    )
-    entities.extend(colors)
+**Colors**: red, blue, green, black, white, yellow, orange, purple, pink, brown, gray, silver, gold, etc.
+**Product Types**: mountain bike, road bike, bike, bicycle, frame, handlebar, brake, helmet, jersey, wheel, tire, pedal, etc.
+**Materials**: carbon, aluminum, steel, titanium, plastic, leather, etc.
+**Brands/Models**: specific brand names or model names if mentioned
+**Specifications**: size indicators, technical terms, features
+**Categories**: clothing, accessories, components, tools, etc.
 
-    # Product types
-    products = re.findall(
-        r"\b(mountain bike|bike|bicycle|handlebar|brake|frame|helmet|jersey|bici|bicicletta|manubrio|freno)\b",
-        question.lower(),
-    )
-    entities.extend(products)
+Examples:
+- "Find red mountain bikes under $1000" → ["red", "mountain bike"]
+- "Show me carbon fiber road bike frames" → ["carbon fiber", "road bike", "frame"]
+- "I need a black helmet and jersey" → ["black", "helmet", "jersey"]
+- "Search for aluminum handlebars" → ["aluminum", "handlebars"]
 
-    # Remove duplicates and return
-    return list(set(entities))
+Extract only the most relevant entities that would help in product matching. Avoid generic words like "find", "show", "search", etc.
+Return entities in their most useful form (e.g., "mountain bike" not just "mountain")."""
+
+    user_prompt = f"Extract relevant entities from this query: '{question}'"
+    
+    try:
+        response = call_ollama_llm(system_prompt, user_prompt, EntityExtractionResponse, timeout=15)
+        
+        # Clean and validate entities
+        entities = []
+        for entity in response.entities:
+            entity = entity.strip().lower()
+            if entity and len(entity) > 1:  # Avoid single characters
+                entities.append(entity)
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_entities = []
+        for entity in entities:
+            if entity not in seen:
+                seen.add(entity)
+                unique_entities.append(entity)
+        
+        return unique_entities[:10]  # Limit to 10 entities to avoid excessive lists
+        
+    except Exception as e:
+        logger.warning(f"LLM entity extraction failed: {e}")
+        return []
 
 
 def create_query_input(question: str) -> QueryInput:
@@ -272,7 +307,7 @@ def create_query_input(question: str) -> QueryInput:
     )
 
 
-def sample_random_nodes_from_neo4j(limit: int = 5) -> List[Dict]:
+def sample_random_nodes_from_neo4j(limit: int = 20) -> List[Dict]:
     """Sample random nodes from Neo4j graph."""
 
     try:
@@ -421,11 +456,11 @@ def score_semantic_similarity(state: RetrievalState) -> Dict:
         # Sort by similarity and apply threshold
         sorted_nodes = sorted(scored_nodes, key=lambda x: x.score, reverse=True)
 
-        # Take top 5 with minimum threshold of 0.50
-        semantic_scored_nodes = [node for node in sorted_nodes[:5] if node.score >= 0.50]
+        # Take all nodes with minimum threshold of 0.60
+        semantic_scored_nodes = [node for node in sorted_nodes if node.score >= 0.60]
 
         logger.info(
-            f"Selected {len(semantic_scored_nodes)} nodes with semantic similarity ≥ 0.50"
+            f"Selected {len(semantic_scored_nodes)} nodes with semantic similarity ≥ 0.60"
         )
 
         return {"semantic_scored_nodes": semantic_scored_nodes}

@@ -5,7 +5,7 @@ from typing import List, Dict
 
 # Import the functions we need to test
 from knowledge_graph import test_neo4j_connection
-from neo4j_rag_langgraph import call_ollama_llm
+from neo4j_rag_langgraph import call_ollama_llm, analyze_query, evaluate_context, generate_answer, revise_question, sample_neo4j_nodes, score_semantic_similarity, RetrievalState, expand_subgraph, score_expanded_nodes_with_isrelevant
 from isRelevant import (
     llm_judge, batch_semantic_similarity, batch_entity_match, QueryInput, NodeInput, QueryIntent, 
     batch_node_type_priority, composite_score, CompositeWeights, DEFAULT_COMPOSITE_WEIGHTS, batch_isRelevant, ScorerType
@@ -198,6 +198,8 @@ class TestMilestone1CoreComponents:
         assert result >= 0.85, f"LLM judge should be greater than 0.85, got: {result}"
         assert 0.0 <= result <= 1.0, f"LLM judge result should be between 0 and 1, got: {result}"
 
+class TestMilestone2IsRelevantScorersIntegration:
+
     def test_batch_isrelevant_comprehensive(self):
         """Test 9: Test batch_isRelevant with different scorer types and multiple nodes."""
         np.random.seed(42)
@@ -295,10 +297,6 @@ class TestMilestone1CoreComponents:
         # These should be different (unless by pure coincidence the metrics return identical values)
         assert 0.0 <= semantic_only_score <= 1.0, "Semantic-only score should be valid"
         assert 0.0 <= entity_only_score <= 1.0, "Entity-only score should be valid"
-
-
-class TestParallelAndRouterScorers:
-    """Additional tests for parallel and router scoring strategies"""
     
     def test_parallel_scorer_batch(self):
         """Test 11: Test parallel scorer returns maximum of all metrics in batch."""
@@ -512,6 +510,293 @@ class TestParallelAndRouterScorers:
             assert 0.0 <= score <= 1.0, f"Many nodes score {i} should be valid: {score}"
 
 
+class TestMilestone3LangGraphEndToEnd:
+    # Shared state for all test scenarios
+    pipeline_scenarios = {}
+    
+    def test_scenario_1_standard_product_search_e2e(self):
+        """Test 8: E2E Test with Correct Answer - Standard product search workflow
+        
+        This test covers:
+        - Component integration (analyze_query → sample_nodes → score_similarity → expand → final_score)
+        - End-to-end workflow with clear query producing relevant answer
+        """
+        
+        # Clear query that should produce good results
+        test_question = "What mountain bikes do you have?"
+        
+        # Initialize scenario state
+        scenario_name = "standard_product_search"
+        TestMilestone3LangGraphEndToEnd.pipeline_scenarios[scenario_name] = {"question": test_question}
+        state = TestMilestone3LangGraphEndToEnd.pipeline_scenarios[scenario_name]
+        
+        try:
+            # Step 1: Analyze Query (Component + E2E validation)
+            result = analyze_query(state)
+            state.update(result)
+            
+            # Validate analyze_query component behavior
+            assert "query_input" in result, "Should produce query_input"
+            query_input = result["query_input"]
+            assert hasattr(query_input, 'text'), "QueryInput should have text"
+            assert hasattr(query_input, 'embeddings'), "QueryInput should have embeddings"
+            assert hasattr(query_input, 'entities'), "QueryInput should have entities"
+            assert hasattr(query_input, 'intent'), "QueryInput should have intent"
+            assert query_input.text == test_question, "Text should match input"
+            assert isinstance(query_input.intent, QueryIntent), "Intent should be QueryIntent enum"
+            
+            # Step 2: Sample Neo4j Nodes (Component + E2E validation)
+            result = sample_neo4j_nodes(state)
+            state.update(result)
+            
+            # Validate sample_neo4j_nodes component behavior
+            assert "sampled_nodes" in result, "Should produce sampled_nodes"
+            sampled_nodes = result["sampled_nodes"]
+            assert isinstance(sampled_nodes, list), "Sampled nodes should be list"
+            assert len(sampled_nodes) <= 20, "Should sample max 20 nodes"
+            
+            # Step 3: Score Semantic Similarity (Component + E2E validation)  
+            result = score_semantic_similarity(state)
+            state.update(result)
+            
+            # Validate score_semantic_similarity component behavior
+            assert "semantic_scored_nodes" in result, "Should produce semantic_scored_nodes"
+            semantic_scored_nodes = result["semantic_scored_nodes"]
+            assert isinstance(semantic_scored_nodes, list), "Semantic scored nodes should be list"
+            
+            # Validate NodeInput structure and scoring
+            for i, node in enumerate(semantic_scored_nodes):
+                assert hasattr(node, 'text'), f"Node {i} should have text"
+                assert hasattr(node, 'score'), f"Node {i} should have score"
+                assert 0.0 <= node.score <= 1.0, f"Node {i} score should be valid: {node.score}"
+                assert node.score >= 0.60, f"Node {i} should meet threshold: {node.score}"
+            
+            # Validate sorting
+            if len(semantic_scored_nodes) > 1:
+                for i in range(len(semantic_scored_nodes) - 1):
+                    assert semantic_scored_nodes[i].score >= semantic_scored_nodes[i + 1].score, \
+                        "Semantic nodes should be sorted by score"
+            
+            # Step 4: Expand Subgraph (Component + E2E validation)
+            result = expand_subgraph(state)
+            state.update(result)
+            
+            # Validate expand_subgraph component behavior
+            assert "expanded_subgraph" in result, "Should produce expanded_subgraph"
+            assert "expanded_nodes" in result, "Should produce expanded_nodes"
+            expanded_subgraph = result["expanded_subgraph"]
+            expanded_nodes = result["expanded_nodes"]
+            assert isinstance(expanded_subgraph, list), "Expanded subgraph should be list"
+            assert isinstance(expanded_nodes, list), "Expanded nodes should be list"
+            
+            # Step 5: Score All Nodes with isRelevant (Component + E2E validation)
+            result = score_expanded_nodes_with_isrelevant(state)
+            state.update(result)
+            
+            # Validate score_expanded_nodes_with_isrelevant component behavior
+            assert "expanded_scored_nodes" in result, "Should produce expanded_scored_nodes"
+            assert "final_relevant_nodes" in result, "Should produce final_relevant_nodes"
+            expanded_scored_nodes = result["expanded_scored_nodes"]
+            final_relevant_nodes = result["final_relevant_nodes"]
+            
+            assert isinstance(final_relevant_nodes, list), "Final nodes should be list"
+            assert len(final_relevant_nodes) <= 15, "Should limit to 15 final nodes"
+            
+            # Validate final node structure and scoring
+            for i, node in enumerate(final_relevant_nodes):
+                assert hasattr(node, 'score'), f"Final node {i} should have score"
+                assert hasattr(node, 'text'), f"Final node {i} should have text"
+                assert hasattr(node, 'node_type'), f"Final node {i} should have node_type"
+                assert 0.0 <= node.score <= 1.0, f"Final node {i} score should be valid: {node.score}"
+            
+            # Validate final sorting
+            if len(final_relevant_nodes) > 1:
+                for i in range(len(final_relevant_nodes) - 1):
+                    assert final_relevant_nodes[i].score >= final_relevant_nodes[i + 1].score, \
+                        "Final nodes should be sorted by score"
+            
+            # Step 6: End-to-End Answer Generation
+            print("  Step 6: Generating final answer...")
+            result = generate_answer(state)
+            state.update(result)
+            
+            # Validate end-to-end answer generation
+            assert "final_answer" in result, "Should produce final_answer"
+            final_answer = result["final_answer"]
+            assert isinstance(final_answer, str), "Final answer should be string"
+            assert len(final_answer.strip()) > 0, "Final answer should not be empty"
+            assert len(final_answer) > 50, "Final answer should be substantive"  # At least a sentence
+            
+            print(f"    Generated answer ({len(final_answer)} chars)")
+            print(f"    Answer preview: {final_answer}") 
+            
+        except Exception as e:
+            if "Neo4j" in str(e) or "database" in str(e).lower():
+                pytest.skip(f"Database unavailable for E2E test: {e}")
+            else:
+                raise AssertionError(f"Standard product search E2E test failed: {e}")
+
+    def test_scenario_2_insufficient_context_and_revision_e2e(self):
+            """Test 9: E2E Test with Insufficient Context and Revision
+            
+            Tests the revision loop when context is insufficient.
+            Given an ambiguous query, system should:
+            1. Initially fail to find relevant nodes
+            2. Enter revision loop via evaluate_context
+            3. Second iteration should produce valid answer
+            """
+            
+            # Ambiguous query that should trigger revision
+            test_question = "Tell me about options for the trail"
+            
+            scenario_name = "insufficient_context_revision"
+            TestMilestone3LangGraphEndToEnd.pipeline_scenarios[scenario_name] = {
+                "question": test_question,
+                "revision_history": []
+            }
+            state = TestMilestone3LangGraphEndToEnd.pipeline_scenarios[scenario_name]
+            
+            try:
+                # First iteration - should be insufficient
+                
+                # Run pipeline first iteration
+                state.update(analyze_query(state))
+                state.update(sample_neo4j_nodes(state))
+                state.update(score_semantic_similarity(state))
+                state.update(expand_subgraph(state))
+                state.update(score_expanded_nodes_with_isrelevant(state))
+                
+                # Evaluate context - should be insufficient
+                result = evaluate_context(state)
+                state.update(result)
+                
+                # If sufficient on first try, that's actually fine (good data)
+                if state.get("decision") == "sufficient":
+                    result = generate_answer(state)
+                    state.update(result)
+                    assert "final_answer" in result, "Should generate answer"
+                    print(result["final_answer"])
+                    return
+                
+                # If insufficient, test revision
+                assert state.get("decision") == "revision", "Should decide on revision for ambiguous query"
+                
+                # Revision step
+                result = revise_question(state)
+                state.update(result)
+                
+                assert "question" in result, "Revision should produce new question"
+                assert "revision_history" in result, "Should track revision history"
+                revised_question = result["question"]
+                revision_history = result["revision_history"]
+                
+                assert revised_question != test_question, "Revised question should be different"
+                assert len(revision_history) > 0, "Should have revision history"
+                assert test_question in revision_history, "Should track original question"
+                
+                print(f"    Original: '{test_question}'")
+                print(f"    Revised:  '{revised_question}'")
+                
+                # Run pipeline second iteration  
+                state.update(analyze_query(state))
+                state.update(sample_neo4j_nodes(state))
+                state.update(score_semantic_similarity(state))
+                state.update(expand_subgraph(state))
+                state.update(score_expanded_nodes_with_isrelevant(state))
+                
+                # Second evaluation
+                result = evaluate_context(state)
+                state.update(result)
+                
+                # Generate final answer
+                result = generate_answer(state)
+                state.update(result)
+                
+                assert "final_answer" in result, "Should generate answer after revision"
+                final_answer = result["final_answer"]
+                assert isinstance(final_answer, str), "Answer should be string"
+                assert len(final_answer.strip()) > 0, "Answer should not be empty"
+                
+                print("    Generated answer after revision:")
+                print(final_answer)
+                
+            except Exception as e:
+                if "Neo4j" in str(e) or "database" in str(e).lower():
+                    pytest.skip(f"Database unavailable for revision E2E test: {e}")
+                else:
+                    raise AssertionError(f"Insufficient context and revision E2E test failed: {e}")
+                
+    def test_scenario_3_llm_failure_handling_e2e(self):
+        """Test 10: LLM Failure Test
+        
+        Tests system resilience when LLM fails.
+        System should:
+        1. Not crash when LLM fails
+        2. Handle error gracefully
+        3. Return fallback response
+        """
+        
+        test_question = "Find mountain bikes under $500"
+        
+        scenario_name = "llm_failure"
+        TestMilestone3LangGraphEndToEnd.pipeline_scenarios[scenario_name] = {"question": test_question}
+        state = TestMilestone3LangGraphEndToEnd.pipeline_scenarios[scenario_name]
+        
+        # Test LLM failure in different components
+        
+        with patch('neo4j_rag_langgraph.call_ollama_llm') as mock_llm:
+            # Make LLM fail for intent analysis
+            mock_llm.side_effect = Exception("LLM service unavailable")
+            
+            try:
+                result = analyze_query(state)
+                # Should not crash, should have fallback
+                assert "query_input" in result, "Should have fallback query_input"
+                query_input = result["query_input"]
+                assert isinstance(query_input.intent, QueryIntent), "Should have fallback intent"
+            except Exception as e:
+                # If it crashes, that's actually a problem
+                raise AssertionError(f"Query analysis should handle LLM failure gracefully: {e}")
+        
+        # First run normal pipeline to get to evaluation step
+        state.update(analyze_query(state))
+        state.update(sample_neo4j_nodes(state))
+        state.update(score_semantic_similarity(state))
+        state.update(expand_subgraph(state))
+        state.update(score_expanded_nodes_with_isrelevant(state))
+        
+        with patch('neo4j_rag_langgraph.call_ollama_llm') as mock_llm:
+            mock_llm.side_effect = Exception("LLM service timeout")
+            
+            try:
+                result = evaluate_context(state)
+                # Should not crash, should have fallback decision
+                assert "decision" in result, "Should have fallback decision"
+                decision = result["decision"]
+                assert decision in ["sufficient", "revision"], f"Should have valid fallback decision: {decision}"
+            except Exception as e:
+                raise AssertionError(f"Context evaluation should handle LLM failure gracefully: {e}")
+        
+        # Test 3: LLM failure in answer generation
+        state["decision"] = "sufficient"  # Force sufficient to reach answer generation
+        
+        with patch('neo4j_rag_langgraph.call_ollama_llm') as mock_llm:
+            mock_llm.side_effect = Exception("LLM connection lost")
+            
+            try:
+                result = generate_answer(state)
+                # Should not crash, should have fallback answer
+                assert "final_answer" in result, "Should have fallback answer"
+                final_answer = result["final_answer"]
+                assert isinstance(final_answer, str), "Fallback answer should be string"
+                assert len(final_answer) > 0, "Fallback answer should not be empty"
+                print(f"    ✅ Answer generation handles LLM failure gracefully")
+                print(f"    Fallback answer: '{final_answer}...'")
+            except Exception as e:
+                raise AssertionError(f"Answer generation should handle LLM failure gracefully: {e}")
+        
+        print("✅ Scenario 3 PASSED: System handles LLM failures gracefully across all components")    
+
 if __name__ == "__main__":
     # Run the tests
     test_suite = TestMilestone1CoreComponents()
@@ -525,29 +810,38 @@ if __name__ == "__main__":
         test_suite.test_batch_entity_match()
         test_suite.test_batch_node_type_priority()
         test_suite.test_llm_judge_batch_usage()
-        test_suite.test_batch_isrelevant_comprehensive()
-        test_suite.test_composite_score_configurable_weights()
         
     except Exception as e:
         print(f"Test failed: {e}")
         import traceback
         traceback.print_exc()
     
-    # Run parallel and router tests
-    parallel_router_suite = TestParallelAndRouterScorers()
+    test_isrelevant = TestMilestone2IsRelevantScorersIntegration()
     
     try:
-        parallel_router_suite.test_parallel_scorer_batch()
-        parallel_router_suite.test_router_scorer_basic_batch()
-        parallel_router_suite.test_router_all_scorer_batch()
-        parallel_router_suite.test_router_two_variations_batch()
-        parallel_router_suite.test_single_metric_routers_batch()
-        parallel_router_suite.test_scorer_comparison_batch()
-        parallel_router_suite.test_edge_cases_batch()
-        
-        print("\n🎉 ALL PARALLEL AND ROUTER TESTS PASSED!")
+        test_isrelevant.test_batch_isrelevant_comprehensive()
+        test_isrelevant.test_composite_score_configurable_weights()
+        test_isrelevant.test_parallel_scorer_batch()
+        test_isrelevant.test_router_scorer_basic_batch()
+        test_isrelevant.test_router_all_scorer_batch()
+        test_isrelevant.test_router_two_variations_batch()
+        test_isrelevant.test_single_metric_routers_batch()
+        test_isrelevant.test_scorer_comparison_batch()
+        test_isrelevant.test_edge_cases_batch()
         
     except Exception as e:
-        print(f"Parallel/Router test failed: {e}")
+        print(f"Test failed: {e}")
+        import traceback
+        traceback.print_exc()
+
+    test_end2end = TestMilestone3LangGraphEndToEnd()
+    
+    try:
+        test_end2end.test_scenario_1_standard_product_search_e2e()
+        test_end2end.test_scenario_2_insufficient_context_and_revision_e2e()
+        test_end2end.test_scenario_3_llm_failure_handling_e2e()
+        
+    except Exception as e:
+        print(f"Test failed: {e}")
         import traceback
         traceback.print_exc()
