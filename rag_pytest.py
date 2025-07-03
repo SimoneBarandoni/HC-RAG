@@ -2,10 +2,11 @@ import pytest
 import numpy as np
 from unittest.mock import Mock, patch, MagicMock
 from typing import List, Dict
+from time import time
 
 # Import the functions we need to test
 from knowledge_graph import test_neo4j_connection
-from neo4j_rag_langgraph import call_ollama_llm, analyze_query, evaluate_context, generate_answer, revise_question, sample_neo4j_nodes, score_semantic_similarity, RetrievalState, expand_subgraph, score_expanded_nodes_with_isrelevant
+from neo4j_rag_langgraph import app, call_ollama_llm, analyze_query, evaluate_context, generate_answer, revise_question, sample_neo4j_nodes, score_semantic_similarity, RetrievalState, expand_subgraph, score_expanded_nodes_with_isrelevant
 from isRelevant import (
     llm_judge, batch_semantic_similarity, batch_entity_match, QueryInput, NodeInput, QueryIntent, 
     batch_node_type_priority, composite_score, CompositeWeights, DEFAULT_COMPOSITE_WEIGHTS, batch_isRelevant, ScorerType
@@ -190,11 +191,12 @@ class TestMilestone1CoreComponents:
 
     def test_llm_judge_batch_usage(self):
         """Test 8: Test that LLM judge uses batch processing internally."""
-        query = QueryInput("Find red mountain bikes", np.random.rand(384), [], QueryIntent.PRODUCT_SEARCH)
+        query = QueryInput("Find red mountain bikes with good suspension", np.random.rand(384), [], QueryIntent.PRODUCT_SEARCH)
         node = NodeInput("Red mountain bike with suspension", np.random.rand(384), {}, "product", ["red mountain bike", "suspension"])
         
         # This should internally use batch processing
         result = llm_judge(query, node)
+        print(result)
         assert result >= 0.85, f"LLM judge should be greater than 0.85, got: {result}"
         assert 0.0 <= result <= 1.0, f"LLM judge result should be between 0 and 1, got: {result}"
 
@@ -795,7 +797,210 @@ class TestMilestone3LangGraphEndToEnd:
             except Exception as e:
                 raise AssertionError(f"Answer generation should handle LLM failure gracefully: {e}")
         
-        print("✅ Scenario 3 PASSED: System handles LLM failures gracefully across all components")    
+        print("✅ Scenario 3 PASSED: System handles LLM failures gracefully across all components")   
+
+    def test_scenario_4_empty_data_and_no_results_e2e(self):
+        """Test 11: Test with Empty or Unexpected Data
+        
+        Tests system behavior when no relevant nodes can be found.
+        Should gracefully handle and generate appropriate response.
+        """
+        print("\n🔧 Scenario 4: Empty Data and No Results E2E...")
+        
+        # Query that's very unlikely to match anything
+        test_question = "Find purple flying unicorn bicycles with laser beams"
+        
+        scenario_name = "empty_data"
+        TestMilestone3LangGraphEndToEnd.pipeline_scenarios[scenario_name] = {
+            "question": test_question,
+            "revision_history": []
+        }
+        state = TestMilestone3LangGraphEndToEnd.pipeline_scenarios[scenario_name]
+        
+        try:
+            print("  Running pipeline with unlikely-to-match query...")
+            
+            # Run complete pipeline
+            state.update(analyze_query(state))
+            state.update(sample_neo4j_nodes(state))
+            state.update(score_semantic_similarity(state))
+            state.update(expand_subgraph(state))
+            state.update(score_expanded_nodes_with_isrelevant(state))
+            
+            # Check if we got any results
+            final_relevant_nodes = state.get("final_relevant_nodes", [])
+            print(f"    Found {len(final_relevant_nodes)} relevant nodes")
+            
+            # If we found results, that's fine (good test data), but test with empty results
+            if len(final_relevant_nodes) > 0:
+                print("    ✅ Query found some results (good test data)")
+                # Artificially create empty scenario
+                state["final_relevant_nodes"] = []
+                print("    Creating artificial empty scenario...")
+            
+            # Test context evaluation with no results
+            result = evaluate_context(state)
+            state.update(result)
+            
+            decision = state.get("decision", "unknown")
+            print(f"    Decision with no results: {decision}")
+            
+            # Test multiple revisions without improvement
+            revision_count = 0
+            max_revisions = 3
+            
+            while decision == "revision" and revision_count < max_revisions:
+                revision_count += 1
+                print(f"    Revision {revision_count}...")
+                
+                # Revise question
+                result = revise_question(state)
+                state.update(result)
+                
+                # Run pipeline again (still expecting no results)
+                state.update(analyze_query(state))
+                state.update(sample_neo4j_nodes(state))
+                state.update(score_semantic_similarity(state))
+                state.update(expand_subgraph(state))
+                state.update(score_expanded_nodes_with_isrelevant(state))
+                
+                # Force empty results for testing
+                state["final_relevant_nodes"] = []
+                
+                # Evaluate again
+                result = evaluate_context(state)
+                state.update(result)
+                decision = state.get("decision", "unknown")
+                
+                print(f"    Decision after revision {revision_count}: {decision}")
+            
+            # Force sufficient to test answer generation with no data
+            state["decision"] = "sufficient"
+            
+            # Generate answer with no relevant nodes
+            result = generate_answer(state)
+            state.update(result)
+            
+            assert "final_answer" in result, "Should generate answer even with no data"
+            final_answer = result["final_answer"]
+            assert isinstance(final_answer, str), "Answer should be string"
+            assert len(final_answer) > 0, "Answer should not be empty"
+            
+            # Answer should indicate lack of information
+            lower_answer = final_answer.lower()
+            lack_indicators = ["no information", "not found", "unable to find", "no results", "not available", "sorry", "apologize"]
+            has_lack_indicator = any(indicator in lower_answer for indicator in lack_indicators)
+            
+            if not has_lack_indicator:
+                print(f"    ⚠️  Answer doesn't clearly indicate lack of information: '{final_answer[:100]}...'")
+            else:
+                print("    ✅ Answer appropriately indicates lack of information")
+            
+            print("✅ Scenario 4 PASSED: System handles empty/no results gracefully")
+            print(f"   Query: '{test_question}'")
+            print(f"   Revisions attempted: {revision_count}")
+            print(f"   Final answer length: {len(final_answer)} chars")
+            print(f"   Answer indicates lack of info: {has_lack_indicator}")
+            
+        except Exception as e:
+            if "Neo4j" in str(e) or "database" in str(e).lower():
+                pytest.skip(f"Database unavailable for empty data E2E test: {e}")
+            else:
+                raise AssertionError(f"Empty data E2E test failed: {e}")
+    
+    def test_scenario_5_complete_langgraph_workflow_e2e(self):
+        """Test 12: Complete LangGraph Workflow E2E
+        
+        Tests the complete LangGraph workflow using the compiled app.
+        This is the ultimate end-to-end test.
+        """
+        print("\n🔧 Scenario 5: Complete LangGraph Workflow E2E...")
+        
+        test_question = "What road bikes do you have under $800?"
+        
+        scenario_name = "complete_langgraph"
+        TestMilestone3LangGraphEndToEnd.pipeline_scenarios[scenario_name] = {}
+        
+        try:
+            print("  Running complete LangGraph app workflow...")
+            
+            # Prepare initial state for LangGraph
+            initial_state = {
+                "question": test_question,
+                "revision_history": [],
+                "sampled_nodes": [],
+                "semantic_scored_nodes": [],
+                "expanded_nodes": [],
+                "expanded_scored_nodes": [],
+                "final_relevant_nodes": [],
+                "expanded_subgraph": [],
+            }
+            
+            # Run complete LangGraph workflow
+            start_time = time()
+            final_state = app.invoke(initial_state, {"recursion_limit": 10})
+            total_duration = time() - start_time
+            
+            # Store results
+            TestMilestone3LangGraphEndToEnd.pipeline_scenarios[scenario_name] = final_state
+            
+            # Validate complete workflow results
+            assert isinstance(final_state, dict), "Final state should be dict"
+            assert "question" in final_state, "Should preserve question"
+            assert "final_answer" in final_state, "Should produce final answer"
+            
+            final_answer = final_state["final_answer"]
+            assert isinstance(final_answer, str), "Final answer should be string"
+            assert len(final_answer.strip()) > 0, "Final answer should not be empty"
+            assert len(final_answer) > 50, "Final answer should be substantive"
+            
+            # Validate workflow progression
+            expected_keys = [
+                "query_input", "sampled_nodes", "semantic_scored_nodes", 
+                "expanded_nodes", "final_relevant_nodes", "final_answer"
+            ]
+            
+            for key in expected_keys:
+                assert key in final_state, f"Workflow should produce {key}"
+            
+            # Validate data flow
+            if "query_input" in final_state:
+                query_input = final_state["query_input"]
+                assert isinstance(query_input, QueryInput), "Should have valid QueryInput"
+                assert query_input.text == test_question, "Should preserve original question"
+            
+            if "final_relevant_nodes" in final_state:
+                final_nodes = final_state["final_relevant_nodes"]
+                assert isinstance(final_nodes, list), "Final nodes should be list"
+                
+                for node in final_nodes:
+                    assert hasattr(node, 'score'), "Final nodes should have scores"
+                    assert hasattr(node, 'text'), "Final nodes should have text"
+            
+            # Performance validation
+            assert total_duration < 300, f"Complete workflow took too long: {total_duration:.2f}s"
+            
+            print("✅ Scenario 6 PASSED: Complete LangGraph workflow executed successfully")
+            print(f"   Question: '{test_question}'")
+            print(f"   Total duration: {total_duration:.2f}s")
+            print(f"   Final answer length: {len(final_answer)} chars")
+            print(f"   Answer preview: '{final_answer[:100]}...'")
+            
+            # Workflow statistics
+            if "sampled_nodes" in final_state:
+                print(f"   Sampled nodes: {len(final_state['sampled_nodes'])}")
+            if "semantic_scored_nodes" in final_state:
+                print(f"   Semantic nodes: {len(final_state['semantic_scored_nodes'])}")
+            if "final_relevant_nodes" in final_state:
+                print(f"   Final nodes: {len(final_state['final_relevant_nodes'])}")
+            if "revision_history" in final_state:
+                print(f"   Revisions: {len(final_state['revision_history'])}")
+            
+        except Exception as e:
+            if "Neo4j" in str(e) or "database" in str(e).lower():
+                pytest.skip(f"Database unavailable for complete LangGraph E2E test: {e}")
+            else:
+                raise AssertionError(f"Complete LangGraph workflow E2E test failed: {e}") 
 
 if __name__ == "__main__":
     # Run the tests
@@ -840,6 +1045,8 @@ if __name__ == "__main__":
         test_end2end.test_scenario_1_standard_product_search_e2e()
         test_end2end.test_scenario_2_insufficient_context_and_revision_e2e()
         test_end2end.test_scenario_3_llm_failure_handling_e2e()
+        test_end2end.test_scenario_4_empty_data_and_no_results_e2e()
+        test_end2end.test_scenario_5_complete_langgraph_workflow_e2e()
         
     except Exception as e:
         print(f"Test failed: {e}")

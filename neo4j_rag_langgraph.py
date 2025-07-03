@@ -839,7 +839,7 @@ app = workflow.compile()
 
 # --- 6. RAG SYSTEM EXECUTION WITH KNOWLEDGE GRAPH ---
 
-if __name__ == "__main__":
+def main():
     # Example questions suitable for knowledge graph
     example_questions = [
         "What mountain bikes do you have?",
@@ -915,3 +915,6 @@ if __name__ == "__main__":
     finally:
         # Close Neo4j connection
         neo4j_driver.close()
+
+if __name__ == "__main__":
+    main()
