@@ -1,5 +1,25 @@
-jupyter
-neo4j>=5.14.1
-pandas>=2.1.4
-python-dotenv>=1.0.0
-requests>=2.31.0 
+# Core LlamaIndex dependencies
+llama-index-core==0.10.0
+llama-index==0.10.0
+
+# LLM and embedding providers
+llama-index-llms-openai==0.1.6
+llama-index-embeddings-openai==0.1.6
+llama-index-embeddings-huggingface==0.2.0
+
+# Graph store backends (optional)
+llama-index-graph-stores-neo4j==0.2.1
+neo4j==5.15.0
+
+# Data processing
+pandas==2.1.4
+python-dotenv==1.0.0
+
+# For HuggingFace embeddings
+sentence-transformers==2.2.2
+
+# Optional: For visualization and notebooks
+jupyter==1.0.0
+matplotlib==3.8.2
+seaborn==0.13.0
+networkx==3.2.1 

@@ -1,0 +1,250 @@
+<html>
+    <head>
+        <meta charset="utf-8">
+        
+            <script src="lib/bindings/utils.js"></script>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.2/dist/dist/vis-network.min.css" integrity="sha512-WgxfT5LWjfszlPHXRmBWHkV2eceiWTOBvrKCNbdgDYTHrT2AeLCGbF4sZlZw3UMN3WtL0tGUoIAKsu8mllg/XA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+            <script src="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.2/dist/vis-network.min.js" integrity="sha512-LnvoEWDFrqGHlHmDD2101OrLcbsfkrzoSpvtSQtxK3RMnRV0eOkhhBN2dXHKRrUU8p2DGRTk35n4O8nWSVe1mQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+            
+        
+<center>
+<h1></h1>
+</center>
+
+<!-- <link rel="stylesheet" href="../node_modules/vis/dist/vis.min.css" type="text/css" />
+<script type="text/javascript" src="../node_modules/vis/dist/vis.js"> </script>-->
+        <link
+          href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.0-beta3/dist/css/bootstrap.min.css"
+          rel="stylesheet"
+          integrity="sha384-eOJMYsd53ii+scO/bJGFsiCZc+5NDVN2yr8+0RDqr0Ql0h+rP48ckxlpbzKgwra6"
+          crossorigin="anonymous"
+        />
+        <script
+          src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.0-beta3/dist/js/bootstrap.bundle.min.js"
+          integrity="sha384-JEW9xMcG8R+pH31jmWH6WWP0WintQrMb4s7ZOdauHnUtxwoG2vI5DkLtS3qm9Ekf"
+          crossorigin="anonymous"
+        ></script>
+
+
+        <center>
+          <h1></h1>
+        </center>
+        <style type="text/css">
+
+             #mynetwork {
+                 width: 100%;
+                 height: 600px;
+                 background-color: #ffffff;
+                 border: 1px solid lightgray;
+                 position: relative;
+                 float: left;
+             }
+
+             
+             #loadingBar {
+                 position:absolute;
+                 top:0px;
+                 left:0px;
+                 width: 100%;
+                 height: 600px;
+                 background-color:rgba(200,200,200,0.8);
+                 -webkit-transition: all 0.5s ease;
+                 -moz-transition: all 0.5s ease;
+                 -ms-transition: all 0.5s ease;
+                 -o-transition: all 0.5s ease;
+                 transition: all 0.5s ease;
+                 opacity:1;
+             }
+
+             #bar {
+                 position:absolute;
+                 top:0px;
+                 left:0px;
+                 width:20px;
+                 height:20px;
+                 margin:auto auto auto auto;
+                 border-radius:11px;
+                 border:2px solid rgba(30,30,30,0.05);
+                 background: rgb(0, 173, 246); /* Old browsers */
+                 box-shadow: 2px 0px 4px rgba(0,0,0,0.4);
+             }
+
+             #border {
+                 position:absolute;
+                 top:10px;
+                 left:10px;
+                 width:500px;
+                 height:23px;
+                 margin:auto auto auto auto;
+                 box-shadow: 0px 0px 4px rgba(0,0,0,0.2);
+                 border-radius:10px;
+             }
+
+             #text {
+                 position:absolute;
+                 top:8px;
+                 left:530px;
+                 width:30px;
+                 height:50px;
+                 margin:auto auto auto auto;
+                 font-size:22px;
+                 color: #000000;
+             }
+
+             div.outerBorder {
+                 position:relative;
+                 top:400px;
+                 width:600px;
+                 height:44px;
+                 margin:auto auto auto auto;
+                 border:8px solid rgba(0,0,0,0.1);
+                 background: rgb(252,252,252); /* Old browsers */
+                 background: -moz-linear-gradient(top,  rgba(252,252,252,1) 0%, rgba(237,237,237,1) 100%); /* FF3.6+ */
+                 background: -webkit-gradient(linear, left top, left bottom, color-stop(0%,rgba(252,252,252,1)), color-stop(100%,rgba(237,237,237,1))); /* Chrome,Safari4+ */
+                 background: -webkit-linear-gradient(top,  rgba(252,252,252,1) 0%,rgba(237,237,237,1) 100%); /* Chrome10+,Safari5.1+ */
+                 background: -o-linear-gradient(top,  rgba(252,252,252,1) 0%,rgba(237,237,237,1) 100%); /* Opera 11.10+ */
+                 background: -ms-linear-gradient(top,  rgba(252,252,252,1) 0%,rgba(237,237,237,1) 100%); /* IE10+ */
+                 background: linear-gradient(to bottom,  rgba(252,252,252,1) 0%,rgba(237,237,237,1) 100%); /* W3C */
+                 filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#fcfcfc', endColorstr='#ededed',GradientType=0 ); /* IE6-9 */
+                 border-radius:72px;
+                 box-shadow: 0px 0px 10px rgba(0,0,0,0.2);
+             }
+             
+
+             
+
+             
+        </style>
+    </head>
+
+
+    <body>
+        <div class="card" style="width: 100%">
+            
+            
+            <div id="mynetwork" class="card-body"></div>
+        </div>
+
+        
+            <div id="loadingBar">
+              <div class="outerBorder">
+                <div id="text">0%</div>
+                <div id="border">
+                  <div id="bar"></div>
+                </div>
+              </div>
+            </div>
+        
+        
+
+        <script type="text/javascript">
+
+              // initialize global variables.
+              var edges;
+              var nodes;
+              var allNodes;
+              var allEdges;
+              var nodeColors;
+              var originalNodes;
+              var network;
+              var container;
+              var options, data;
+              var filter = {
+                  item : '',
+                  property : '',
+                  value : []
+              };
+
+              
+
+              
+
+              // This method is responsible for drawing the graph, returns the drawn network
+              function drawGraph() {
+                  var container = document.getElementById('mynetwork');
+
+                  
+
+                  // parsing and collecting nodes and edges from the python
+                  nodes = new vis.DataSet([{"color": "#97c2fc", "id": "cab59754-6069-4088-afba-6f25426727ab", "label": "cab59754-6069-4088-afba-6f25426727ab", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "0ec3d99b-1716-4455-8a87-be82921308b0", "label": "0ec3d99b-1716-4455-8a87-be82921308b0", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "872ae2fa-ca09-4383-8097-4f5859b895e9", "label": "872ae2fa-ca09-4383-8097-4f5859b895e9", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "d6300624-a0fa-4f72-98d5-81dcf932dcbd", "label": "d6300624-a0fa-4f72-98d5-81dcf932dcbd", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "b13d6d29-ecb8-4c3e-acf6-12467d74bc38", "label": "b13d6d29-ecb8-4c3e-acf6-12467d74bc38", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "b3dcf7e4-9ff6-48ae-929d-9a6ec86b67d1", "label": "b3dcf7e4-9ff6-48ae-929d-9a6ec86b67d1", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "fe67774b-82f1-4c92-a57d-ea710fc906d0", "label": "fe67774b-82f1-4c92-a57d-ea710fc906d0", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "795230b4-9b89-473e-ba93-a4885094dd9c", "label": "795230b4-9b89-473e-ba93-a4885094dd9c", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "27f76f8d-d498-4f88-9d74-8cab10b3d0dc", "label": "27f76f8d-d498-4f88-9d74-8cab10b3d0dc", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "fb1bb941-b743-40e2-a0f8-798f965a3541", "label": "fb1bb941-b743-40e2-a0f8-798f965a3541", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "8a615e39-eb8f-40e9-a8d5-ff77383c2f7e", "label": "8a615e39-eb8f-40e9-a8d5-ff77383c2f7e", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "be80db10-6548-49b8-bc65-d05cb4ffddd6", "label": "be80db10-6548-49b8-bc65-d05cb4ffddd6", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "9b79027d-ec8c-440e-bc34-2b0b0d953378", "label": "9b79027d-ec8c-440e-bc34-2b0b0d953378", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "7998b89f-ab05-4b5b-b04c-840d992fd9e6", "label": "7998b89f-ab05-4b5b-b04c-840d992fd9e6", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "975aac1d-9e27-4a81-9b40-12b1500f42e6", "label": "975aac1d-9e27-4a81-9b40-12b1500f42e6", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "870db646-11c7-45ce-9319-89c7d4a83697", "label": "870db646-11c7-45ce-9319-89c7d4a83697", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "e12c438d-f314-417f-a578-d94e4a616d8e", "label": "e12c438d-f314-417f-a578-d94e4a616d8e", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "6fc00ec0-a185-4dea-be75-5b7f41121fa6", "label": "6fc00ec0-a185-4dea-be75-5b7f41121fa6", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "33a583df-3b42-4a89-82f4-922caacfaf69", "label": "33a583df-3b42-4a89-82f4-922caacfaf69", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "14457d43-43c5-4d49-93f2-70d80e9e769a", "label": "14457d43-43c5-4d49-93f2-70d80e9e769a", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "c420b4db-1288-4429-876d-13fe87433529", "label": "c420b4db-1288-4429-876d-13fe87433529", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "86d27202-b7e2-403c-b2b5-21408f385da9", "label": "86d27202-b7e2-403c-b2b5-21408f385da9", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "f06f0373-cb96-47f8-a697-06fbeac5000b", "label": "f06f0373-cb96-47f8-a697-06fbeac5000b", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "02bc4bd3-2622-4a49-984f-6752538f86b7", "label": "02bc4bd3-2622-4a49-984f-6752538f86b7", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "b0eb1dec-8620-485b-89ad-4e840c301466", "label": "b0eb1dec-8620-485b-89ad-4e840c301466", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "b6cc230f-5367-4e5e-bd7e-cf8d2773214f", "label": "b6cc230f-5367-4e5e-bd7e-cf8d2773214f", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "File_path", "label": "File_path", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Ll mountain handlebars", "label": "Ll mountain handlebars", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "/home/simone/repos/hc-rag/data/ingesteddocuments/long-sleeve logo jersey (m", "label": "/home/simone/repos/hc-rag/data/ingesteddocuments/long-sleeve logo jersey (m", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "/home/simone/repos/hc-rag/data/ingesteddocuments/vintage trailblazer x-1 mountain bike (1995", "label": "/home/simone/repos/hc-rag/data/ingesteddocuments/vintage trailblazer x-1 mountain bike (1995", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "/home/simone/repos/hc-rag/data/ingesteddocuments/ll mountain handlebars (black", "label": "/home/simone/repos/hc-rag/data/ingesteddocuments/ll mountain handlebars (black", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Black", "label": "Black", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "808", "label": "808", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Optimal stiffness", "label": "Optimal stiffness", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Casual cyclists", "label": "Casual cyclists", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Fig 1.jpg", "label": "Fig 1.jpg", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Json", "label": "Json", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Hb-m243", "label": "Hb-m243", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Competitive cyclists", "label": "Competitive cyclists", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "High-strength alloy", "label": "High-strength alloy", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Stability", "label": "Stability", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Durability", "label": "Durability", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Precise control", "label": "Precise control", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Sleek black finish", "label": "Sleek black finish", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Wrist fatigue", "label": "Wrist fatigue", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Comfortable grip", "label": "Comfortable grip", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "/home/simone/repos/hc-rag/data/ingesteddocuments/", "label": "/home/simone/repos/hc-rag/data/ingesteddocuments/", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Ingesteddocuments", "label": "Ingesteddocuments", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Long-sleeve logo jersey", "label": "Long-sleeve logo jersey", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Hc-rag", "label": "Hc-rag", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Ll mountain handlebars image", "label": "Ll mountain handlebars image", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "/home/simone/repos/hc-rag/data/", "label": "/home/simone/repos/hc-rag/data/", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Product name", "label": "Product name", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Product id", "label": "Product id", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "714", "label": "714", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Color", "label": "Color", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Multi", "label": "Multi", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Product code", "label": "Product code", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Lj-0192-m", "label": "Lj-0192-m", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "/home/simone/repos", "label": "/home/simone/repos", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Added coverage", "label": "Added coverage", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Wearing on its own", "label": "Wearing on its own", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Sporty and casual wardrobe", "label": "Sporty and casual wardrobe", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "M", "label": "M", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Vibrant yet sleek look", "label": "Vibrant yet sleek look", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Comfortable during workouts", "label": "Comfortable during workouts", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Balanced silhouette", "label": "Balanced silhouette", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Image", "label": "Image", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Warmth", "label": "Warmth", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Comfortable during everyday wear", "label": "Comfortable during everyday wear", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Layering", "label": "Layering", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Perfect fit", "label": "Perfect fit", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Size", "label": "Size", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Mountain bike manual", "label": "Mountain bike manual", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Tire pressure", "label": "Tire pressure", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Safety precautions", "label": "Safety precautions", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Trail riding", "label": "Trail riding", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Downhill", "label": "Downhill", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Cross-country", "label": "Cross-country", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "30-50", "label": "30-50", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "25-35", "label": "25-35", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Shift weight back", "label": "Shift weight back", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "20-30", "label": "20-30", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Ride within skill level", "label": "Ride within skill level", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Wear helmet", "label": "Wear helmet", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Inspect bike", "label": "Inspect bike", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Obey trail rules", "label": "Obey trail rules", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Basic bike handling", "label": "Basic bike handling", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Body position", "label": "Body position", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Keep weight centered", "label": "Keep weight centered", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Braking", "label": "Braking", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Use both front and rear brakes", "label": "Use both front and rear brakes", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Shifting gears", "label": "Shifting gears", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Shift before steep climbs/descents", "label": "Shift before steep climbs/descents", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Uphill", "label": "Uphill", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Lean forward", "label": "Lean forward", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Clean and lubricate", "label": "Clean and lubricate", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Chain", "label": "Chain", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Carry", "label": "Carry", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Spare tube", "label": "Spare tube", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "First-aid kit", "label": "First-aid kit", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Vintage trailblazer x-1 mountain bike", "label": "Vintage trailblazer x-1 mountain bike", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Rare (custom solutions needed", "label": "Rare (custom solutions needed", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Cantilever", "label": "Cantilever", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "3x7 (21-speed", "label": "3x7 (21-speed", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "26 inches", "label": "26 inches", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Crimson red", "label": "Crimson red", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "32 lbs", "label": "32 lbs", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "14.5 kg", "label": "14.5 kg", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "High-tensile steel", "label": "High-tensile steel", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "High (frequent lubrication required", "label": "High (frequent lubrication required", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Vintage trailblazer x-1", "label": "Vintage trailblazer x-1", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Mountain bike", "label": "Mountain bike", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Hand-welded steel frame", "label": "Hand-welded steel frame", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "1995", "label": "1995", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Signature chrome fork", "label": "Signature chrome fork", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "3x7-speed shimano altus grip-shifters", "label": "3x7-speed shimano altus grip-shifters", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Glossy crimson red", "label": "Glossy crimson red", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Retro decals", "label": "Retro decals", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "2000", "label": "2000", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Rugged trails", "label": "Rugged trails", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Linear-pull cantilevers", "label": "Linear-pull cantilevers", "shape": "dot", "size": 10}]);
+                  edges = new vis.DataSet([{"arrows": "to", "from": "cab59754-6069-4088-afba-6f25426727ab", "label": "SOURCE", "to": "0ec3d99b-1716-4455-8a87-be82921308b0", "width": 1}, {"arrows": "to", "from": "872ae2fa-ca09-4383-8097-4f5859b895e9", "label": "SOURCE", "to": "d6300624-a0fa-4f72-98d5-81dcf932dcbd", "width": 1}, {"arrows": "to", "from": "b13d6d29-ecb8-4c3e-acf6-12467d74bc38", "label": "SOURCE", "to": "b3dcf7e4-9ff6-48ae-929d-9a6ec86b67d1", "width": 1}, {"arrows": "to", "from": "fe67774b-82f1-4c92-a57d-ea710fc906d0", "label": "SOURCE", "to": "795230b4-9b89-473e-ba93-a4885094dd9c", "width": 1}, {"arrows": "to", "from": "27f76f8d-d498-4f88-9d74-8cab10b3d0dc", "label": "SOURCE", "to": "fb1bb941-b743-40e2-a0f8-798f965a3541", "width": 1}, {"arrows": "to", "from": "8a615e39-eb8f-40e9-a8d5-ff77383c2f7e", "label": "SOURCE", "to": "be80db10-6548-49b8-bc65-d05cb4ffddd6", "width": 1}, {"arrows": "to", "from": "9b79027d-ec8c-440e-bc34-2b0b0d953378", "label": "SOURCE", "to": "7998b89f-ab05-4b5b-b04c-840d992fd9e6", "width": 1}, {"arrows": "to", "from": "975aac1d-9e27-4a81-9b40-12b1500f42e6", "label": "SOURCE", "to": "870db646-11c7-45ce-9319-89c7d4a83697", "width": 1}, {"arrows": "to", "from": "e12c438d-f314-417f-a578-d94e4a616d8e", "label": "SOURCE", "to": "6fc00ec0-a185-4dea-be75-5b7f41121fa6", "width": 1}, {"arrows": "to", "from": "33a583df-3b42-4a89-82f4-922caacfaf69", "label": "SOURCE", "to": "14457d43-43c5-4d49-93f2-70d80e9e769a", "width": 1}, {"arrows": "to", "from": "c420b4db-1288-4429-876d-13fe87433529", "label": "SOURCE", "to": "86d27202-b7e2-403c-b2b5-21408f385da9", "width": 1}, {"arrows": "to", "from": "f06f0373-cb96-47f8-a697-06fbeac5000b", "label": "SOURCE", "to": "02bc4bd3-2622-4a49-984f-6752538f86b7", "width": 1}, {"arrows": "to", "from": "b0eb1dec-8620-485b-89ad-4e840c301466", "label": "SOURCE", "to": "b6cc230f-5367-4e5e-bd7e-cf8d2773214f", "width": 1}, {"arrows": "to", "from": "File_path", "label": "Contains", "to": "Ll mountain handlebars", "width": 1}, {"arrows": "to", "from": "File_path", "label": "Contains", "to": "/home/simone/repos/hc-rag/data/ingesteddocuments/long-sleeve logo jersey (m", "width": 1}, {"arrows": "to", "from": "File_path", "label": "Contains", "to": "/home/simone/repos/hc-rag/data/ingesteddocuments/vintage trailblazer x-1 mountain bike (1995", "width": 1}, {"arrows": "to", "from": "File_path", "label": "Contains", "to": "/home/simone/repos/hc-rag/data/ingesteddocuments/ll mountain handlebars (black", "width": 1}, {"arrows": "to", "from": "Ll mountain handlebars", "label": "Color", "to": "Black", "width": 1}, {"arrows": "to", "from": "Ll mountain handlebars", "label": "Has id", "to": "808", "width": 1}, {"arrows": "to", "from": "Ll mountain handlebars", "label": "Provide", "to": "Optimal stiffness", "width": 1}, {"arrows": "to", "from": "Ll mountain handlebars", "label": "Ideal for", "to": "Casual cyclists", "width": 1}, {"arrows": "to", "from": "Ll mountain handlebars", "label": "Depicted in", "to": "Fig 1.jpg", "width": 1}, {"arrows": "to", "from": "Ll mountain handlebars", "label": "Stored as", "to": "Json", "width": 1}, {"arrows": "to", "from": "Ll mountain handlebars", "label": "Has product code", "to": "Hb-m243", "width": 1}, {"arrows": "to", "from": "Ll mountain handlebars", "label": "Ideal for", "to": "Competitive cyclists", "width": 1}, {"arrows": "to", "from": "Ll mountain handlebars", "label": "Crafted from", "to": "High-strength alloy", "width": 1}, {"arrows": "to", "from": "Ll mountain handlebars", "label": "Enhance", "to": "Stability", "width": 1}, {"arrows": "to", "from": "Ll mountain handlebars", "label": "Designed for", "to": "Durability", "width": 1}, {"arrows": "to", "from": "Ll mountain handlebars", "label": "Designed for", "to": "Precise control", "width": 1}, {"arrows": "to", "from": "Ll mountain handlebars", "label": "Feature", "to": "Sleek black finish", "width": 1}, {"arrows": "to", "from": "Ll mountain handlebars", "label": "Reduce", "to": "Wrist fatigue", "width": 1}, {"arrows": "to", "from": "Ll mountain handlebars", "label": "Ensure", "to": "Comfortable grip", "width": 1}, {"arrows": "to", "from": "Ll mountain handlebars", "label": "Located at", "to": "/home/simone/repos/hc-rag/data/ingesteddocuments/", "width": 1}, {"arrows": "to", "from": "Fig 1.jpg", "label": "Shows", "to": "Ll mountain handlebars", "width": 1}, {"arrows": "to", "from": "Fig 1.jpg", "label": "Located in", "to": "Ingesteddocuments", "width": 1}, {"arrows": "to", "from": "Fig 1.jpg", "label": "Located at", "to": "/home/simone/repos/hc-rag/data/ingesteddocuments/", "width": 1}, {"arrows": "to", "from": "Fig 1.jpg", "label": "Depicts", "to": "Long-sleeve logo jersey", "width": 1}, {"arrows": "to", "from": "Ingesteddocuments", "label": "Part of", "to": "Hc-rag", "width": 1}, {"arrows": "to", "from": "Ingesteddocuments", "label": "Contains", "to": "Fig 1.jpg", "width": 1}, {"arrows": "to", "from": "Ingesteddocuments", "label": "Includes", "to": "Ll mountain handlebars image", "width": 1}, {"arrows": "to", "from": "/home/simone/repos/hc-rag/data/", "label": "Directory of", "to": "Ingesteddocuments", "width": 1}, {"arrows": "to", "from": "Product name", "label": "Is", "to": "Ll mountain handlebars", "width": 1}, {"arrows": "to", "from": "Product id", "label": "Is", "to": "714", "width": 1}, {"arrows": "to", "from": "Product id", "label": "Is", "to": "808", "width": 1}, {"arrows": "to", "from": "Color", "label": "Is", "to": "Black", "width": 1}, {"arrows": "to", "from": "Color", "label": "Is", "to": "Multi", "width": 1}, {"arrows": "to", "from": "Product code", "label": "Is", "to": "Lj-0192-m", "width": 1}, {"arrows": "to", "from": "Product code", "label": "Is", "to": "Hb-m243", "width": 1}, {"arrows": "to", "from": "Hc-rag", "label": "Located in", "to": "/home/simone/repos", "width": 1}, {"arrows": "to", "from": "Long-sleeve logo jersey", "label": "Type", "to": "Fig 1.jpg", "width": 1}, {"arrows": "to", "from": "Long-sleeve logo jersey", "label": "Provides", "to": "Added coverage", "width": 1}, {"arrows": "to", "from": "Long-sleeve logo jersey", "label": "Ideal for", "to": "Wearing on its own", "width": 1}, {"arrows": "to", "from": "Long-sleeve logo jersey", "label": "Designed for", "to": "Sporty and casual wardrobe", "width": 1}, {"arrows": "to", "from": "Long-sleeve logo jersey", "label": "Has color", "to": "Multi", "width": 1}, {"arrows": "to", "from": "Long-sleeve logo jersey", "label": "Has size", "to": "M", "width": 1}, {"arrows": "to", "from": "Long-sleeve logo jersey", "label": "Ensures", "to": "Vibrant yet sleek look", "width": 1}, {"arrows": "to", "from": "Long-sleeve logo jersey", "label": "Identified by", "to": "Product code", "width": 1}, {"arrows": "to", "from": "Long-sleeve logo jersey", "label": "Identified by", "to": "Product id", "width": 1}, {"arrows": "to", "from": "Long-sleeve logo jersey", "label": "Keeps", "to": "Comfortable during workouts", "width": 1}, {"arrows": "to", "from": "Long-sleeve logo jersey", "label": "Offers", "to": "Balanced silhouette", "width": 1}, {"arrows": "to", "from": "Long-sleeve logo jersey", "label": "Stored as", "to": "Image", "width": 1}, {"arrows": "to", "from": "Long-sleeve logo jersey", "label": "Has product id", "to": "714", "width": 1}, {"arrows": "to", "from": "Long-sleeve logo jersey", "label": "Provides", "to": "Warmth", "width": 1}, {"arrows": "to", "from": "Long-sleeve logo jersey", "label": "Keeps", "to": "Comfortable during everyday wear", "width": 1}, {"arrows": "to", "from": "Long-sleeve logo jersey", "label": "Ideal for", "to": "Layering", "width": 1}, {"arrows": "to", "from": "Long-sleeve logo jersey", "label": "Has product code", "to": "Lj-0192-m", "width": 1}, {"arrows": "to", "from": "Long-sleeve logo jersey", "label": "Crafted for", "to": "Perfect fit", "width": 1}, {"arrows": "to", "from": "Size", "label": "Is", "to": "M", "width": 1}, {"arrows": "to", "from": "Mountain bike manual", "label": "Contains", "to": "Tire pressure", "width": 1}, {"arrows": "to", "from": "Mountain bike manual", "label": "Contains section", "to": "Safety precautions", "width": 1}, {"arrows": "to", "from": "Tire pressure", "label": "For", "to": "Trail riding", "width": 1}, {"arrows": "to", "from": "Tire pressure", "label": "For", "to": "Downhill", "width": 1}, {"arrows": "to", "from": "Tire pressure", "label": "For", "to": "Cross-country", "width": 1}, {"arrows": "to", "from": "Cross-country", "label": "Has pressure range", "to": "30-50", "width": 1}, {"arrows": "to", "from": "Trail riding", "label": "Has pressure range", "to": "25-35", "width": 1}, {"arrows": "to", "from": "Downhill", "label": "Requires", "to": "Shift weight back", "width": 1}, {"arrows": "to", "from": "Downhill", "label": "Has pressure range", "to": "20-30", "width": 1}, {"arrows": "to", "from": "Safety precautions", "label": "Includes", "to": "Ride within skill level", "width": 1}, {"arrows": "to", "from": "Safety precautions", "label": "Includes", "to": "Wear helmet", "width": 1}, {"arrows": "to", "from": "Safety precautions", "label": "Includes", "to": "Inspect bike", "width": 1}, {"arrows": "to", "from": "Safety precautions", "label": "Includes", "to": "Obey trail rules", "width": 1}, {"arrows": "to", "from": "Basic bike handling", "label": "Includes", "to": "Body position", "width": 1}, {"arrows": "to", "from": "Body position", "label": "Requires", "to": "Keep weight centered", "width": 1}, {"arrows": "to", "from": "Braking", "label": "Involves", "to": "Use both front and rear brakes", "width": 1}, {"arrows": "to", "from": "Shifting gears", "label": "Involves", "to": "Shift before steep climbs/descents", "width": 1}, {"arrows": "to", "from": "Uphill", "label": "Requires", "to": "Lean forward", "width": 1}, {"arrows": "to", "from": "Clean and lubricate", "label": "Applies to", "to": "Chain", "width": 1}, {"arrows": "to", "from": "Carry", "label": "Includes", "to": "Spare tube", "width": 1}, {"arrows": "to", "from": "Carry", "label": "Includes", "to": "First-aid kit", "width": 1}, {"arrows": "to", "from": "Vintage trailblazer x-1 mountain bike", "label": "Has vintage part availability", "to": "Rare (custom solutions needed", "width": 1}, {"arrows": "to", "from": "Vintage trailblazer x-1 mountain bike", "label": "Has brake type", "to": "Cantilever", "width": 1}, {"arrows": "to", "from": "Vintage trailblazer x-1 mountain bike", "label": "Has gears", "to": "3x7 (21-speed", "width": 1}, {"arrows": "to", "from": "Vintage trailblazer x-1 mountain bike", "label": "Has wheel size", "to": "26 inches", "width": 1}, {"arrows": "to", "from": "Vintage trailblazer x-1 mountain bike", "label": "Has color", "to": "Crimson red", "width": 1}, {"arrows": "to", "from": "Vintage trailblazer x-1 mountain bike", "label": "Has weight", "to": "32 lbs", "width": 1}, {"arrows": "to", "from": "Vintage trailblazer x-1 mountain bike", "label": "Has weight", "to": "14.5 kg", "width": 1}, {"arrows": "to", "from": "Vintage trailblazer x-1 mountain bike", "label": "Has frame material", "to": "High-tensile steel", "width": 1}, {"arrows": "to", "from": "Vintage trailblazer x-1 mountain bike", "label": "Has maintenance level", "to": "High (frequent lubrication required", "width": 1}, {"arrows": "to", "from": "Vintage trailblazer x-1", "label": "Is", "to": "Mountain bike", "width": 1}, {"arrows": "to", "from": "Vintage trailblazer x-1", "label": "Features", "to": "Hand-welded steel frame", "width": 1}, {"arrows": "to", "from": "Vintage trailblazer x-1", "label": "From", "to": "1995", "width": 1}, {"arrows": "to", "from": "Vintage trailblazer x-1", "label": "Has", "to": "Signature chrome fork", "width": 1}, {"arrows": "to", "from": "Vintage trailblazer x-1", "label": "Drivetrain", "to": "3x7-speed shimano altus grip-shifters", "width": 1}, {"arrows": "to", "from": "Vintage trailblazer x-1", "label": "Has finish", "to": "Glossy crimson red", "width": 1}, {"arrows": "to", "from": "Vintage trailblazer x-1", "label": "Adorned with", "to": "Retro decals", "width": 1}, {"arrows": "to", "from": "Vintage trailblazer x-1", "label": "Discontinued in", "to": "2000", "width": 1}, {"arrows": "to", "from": "Vintage trailblazer x-1", "label": "Designed for", "to": "Rugged trails", "width": 1}, {"arrows": "to", "from": "Vintage trailblazer x-1", "label": "Brakes", "to": "Linear-pull cantilevers", "width": 1}, {"arrows": "to", "from": "Mountain bike", "label": "Produced in", "to": "1995", "width": 1}]);
+
+                  nodeColors = {};
+                  allNodes = nodes.get({ returnType: "Object" });
+                  for (nodeId in allNodes) {
+                    nodeColors[nodeId] = allNodes[nodeId].color;
+                  }
+                  allEdges = edges.get({ returnType: "Object" });
+                  // adding nodes and edges to the graph
+                  data = {nodes: nodes, edges: edges};
+
+                  var options = {
+    "configure": {
+        "enabled": false
+    },
+    "edges": {
+        "color": {
+            "inherit": true
+        },
+        "smooth": {
+            "enabled": true,
+            "type": "dynamic"
+        }
+    },
+    "interaction": {
+        "dragNodes": true,
+        "hideEdgesOnDrag": false,
+        "hideNodesOnDrag": false
+    },
+    "physics": {
+        "enabled": true,
+        "stabilization": {
+            "enabled": true,
+            "fit": true,
+            "iterations": 1000,
+            "onlyDynamicEdges": false,
+            "updateInterval": 50
+        }
+    }
+};
+
+                  
+
+
+                  
+
+                  network = new vis.Network(container, data, options);
+
+                  
+
+                  
+
+                  
+
+
+                  
+                      network.on("stabilizationProgress", function(params) {
+                          document.getElementById('loadingBar').removeAttribute("style");
+                          var maxWidth = 496;
+                          var minWidth = 20;
+                          var widthFactor = params.iterations/params.total;
+                          var width = Math.max(minWidth,maxWidth * widthFactor);
+                          document.getElementById('bar').style.width = width + 'px';
+                          document.getElementById('text').innerHTML = Math.round(widthFactor*100) + '%';
+                      });
+                      network.once("stabilizationIterationsDone", function() {
+                          document.getElementById('text').innerHTML = '100%';
+                          document.getElementById('bar').style.width = '496px';
+                          document.getElementById('loadingBar').style.opacity = 0;
+                          // really clean the dom element
+                          setTimeout(function () {document.getElementById('loadingBar').style.display = 'none';}, 500);
+                      });
+                  
+
+                  return network;
+
+              }
+              drawGraph();
+        </script>
+    </body>
+</html>

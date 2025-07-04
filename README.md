@@ -1,200 +1,220 @@
-# HC-RAG: Hybrid Knowledge Graph + RAG System
+# Property Graph Builder with LlamaIndex
 
-This project demonstrates a complete **Hybrid RAG (Retrieval-Augmented Generation)** system that combines:
-- **Neo4j Knowledge Graph** for structured data relationships  
-- **Vector Embeddings** for semantic similarity search
-- **Interactive Subgraph Visualization** using Cytoscape.js
-- **Dynamic Entity Recognition** with intelligent query parsing
+A **general-purpose** LlamaIndex Property Graph system that can automatically discover entities and relationships from **any type of data** without hardcoding schemas or column names.
 
-## Features
+## 🚀 Key Features
 
-✅ **Knowledge Graph Construction**: Build Neo4j graphs from CSV data and PDF documents  
-✅ **Dynamic Embedding Generation**: Automatically create embeddings for diverse data types  
-✅ **Semantic Search**: Find similar content using vector similarity  
-✅ **Interactive Visualization**: Explore knowledge graph subgraphs in your browser  
-✅ **Query Understanding**: Parse natural language queries into structured entities  
-✅ **Relationship Discovery**: Find connections between similar items  
+- **Multi-Format Data Ingestion**: Automatically handles CSV, JSON, text, PDF, and other file types
+- **Schema-Free**: No need to predefine entities or relationships - they're discovered automatically
+- **Multiple Extraction Modes**: Choose between simple, dynamic, or implicit extraction
+- **Flexible Backends**: Works with simple in-memory storage or Neo4j database
+- **Domain Agnostic**: Works with any data domain (e-commerce, medical, financial, etc.)
+- **Interactive Querying**: Built-in query interface with multiple retrieval modes
 
-## 🎨 Interactive Subgraph Visualization
+## 🛠️ Installation
 
-The system creates beautiful, interactive visualizations of knowledge graph subgraphs based on your search results:
-
-- **Node Size**: Represents similarity score to your query
-- **Node Color**: High similarity (red) → Medium (teal) → Low (blue)  
-- **Relationships**: Shows actual connections between similar items
-- **Click Interactions**: Click nodes/edges for detailed information
-- **Drag & Zoom**: Fully interactive graph exploration
-
-![Subgraph Visualization Features](docs/visualization-preview.png)
-
-## Quick Start
-
-### 1. Setup Environment
-
+1. **Install dependencies**:
 ```bash
-# Install dependencies
 pip install -r requirements.txt
-
-# Start Neo4j (Docker)
-docker run -p 7474:7474 -p 7687:7687 -d --env NEO4J_AUTH=neo4j/password neo4j:latest
 ```
 
-### 2. Build Knowledge Graph + Embeddings
-
-```bash
-# Complete setup (creates graph + embeddings)
-python main.py
-```
-
-### 3. Try Interactive Visualization
-
-```bash
-# Interactive demo with multiple queries
-python demo_visualization.py
-
-# Or test specific visualization features
-python main.py --viz-test
-```
-
-## Usage Examples
-
-### Basic RAG Search
-
-```python
-from main import EmbeddingRAGSystem
-
-# Initialize system
-rag_system = EmbeddingRAGSystem('data/knowledge_graph_embeddings.pkl')
-
-# Search for similar content
-results = rag_system.process_query("mountain bike components", top_k=5)
-
-# View results
-for result in results["results"]:
-    print(f"Score: {result['similarity_score']:.3f}")
-    print(f"Content: {result['content']}")
-```
-
-### Interactive Subgraph Visualization
-
-```python
-# Create interactive visualization
-query_results, viz_file = rag_system.visualize_query_results(
-    "road bike frames", 
-    top_k=8,
-    similarity_threshold=0.25
-)
-
-# Opens in browser automatically - explore the subgraph!
-print(f"Visualization saved: {viz_file}")
-```
-
-### Category-Filtered Search
-
-```python
-# Search only in specific content types
-filtered_results = rag_system.search_by_category(
-    "bike accessories", 
-    category_filter="database_table"
-)
-```
-
-## Available Commands
-
-| Command | Description |
-|---------|-------------|
-| `python main.py` | Full setup: build graph + generate embeddings |
-| `python main.py --rag-only` | Test RAG search functionality only |
-| `python main.py --viz-test` | Test visualization features |
-| `python demo_visualization.py` | Interactive visualization demo |
-
-## Data Structure
-
-The system works with:
-
-- **CSV Files**: Product catalogs, categories, descriptions
-- **PDF Documents**: Product manuals and specifications  
-- **JSON Tables**: Extracted structured data from PDFs
-- **Images**: Product photos and diagrams
-
-All data types are automatically processed and embedded for semantic search.
-
-## Visualization Technology Stack
-
-- **Backend**: Python + Neo4j + SentenceTransformers
-- **Frontend**: Cytoscape.js + HTML5 + CSS3
-- **Graph Database**: Neo4j Community Edition
-- **Embeddings**: Sentence-BERT models (all-MiniLM-L6-v2)
-
-## Environment Variables
-
-Create a `.env` file (copy from `example.env`):
-
+2. **Set up environment variables**:
+Create a `.env` file in the project root:
 ```env
-NEO4J_URI=bolt://localhost:7687
+OPENAI_API_KEY=your_openai_api_key_here
+
+# Optional: Neo4j settings if using Neo4j backend
+NEO4J_URL=bolt://localhost:7687
 NEO4J_USERNAME=neo4j
-NEO4J_PASSWORD=password
+NEO4J_PASSWORD=your_password
 ```
 
-## Jupyter Notebook
+**Note**: The system now uses local HuggingFace embeddings by default, so you don't need OpenAI API access for embeddings!
 
-For interactive development:
+3. **Configure your settings**:
+Edit `config.py` to customize:
+- Data path and file types
+- Extraction mode
+- Backend choice (simple vs Neo4j)
+- LLM and embedding models
 
+## 📊 Quick Start
+
+### Step 1: Configure Your Data
+Edit `config.py`:
+```python
+# Point to your data directory or file
+DATA_PATH = "path/to/your/data"
+
+# Optionally filter by file type
+FILE_EXTENSIONS = ['.csv', '.json', '.txt']  # or None for all
+
+# Choose extraction mode
+EXTRACTION_MODE = "auto"  # auto, simple, dynamic, or implicit
+```
+
+### Step 2: Build Your Graph
 ```bash
-# Setup virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies + Jupyter
-pip install -r requirements.txt
-python -m ipykernel install --user --name=hc-rag
-
-# Start Jupyter
-jupyter notebook
+python graph_builder.py
 ```
 
-Then use the `hc-rag` kernel in your notebooks.
+This will:
+- Automatically detect and process all supported files
+- Convert structured data (CSV/JSON) to natural language
+- Use LLM to extract entities and relationships
+- Save the graph for querying
 
-## Architecture
-
+### Step 3: Query Your Graph
+```bash
+python query_interface.py
 ```
-Query → Entity Parsing → Vector Search → Subgraph Extraction → Visualization
-  ↓           ↓              ↓               ↓                    ↓
-Text     Structured     Embeddings      Neo4j Query        Cytoscape.js
-Input     Entities      Similarity      Relationships       Interactive
-                        Ranking           Discovery            Graph
+
+This starts an interactive session where you can:
+- See graph statistics and structure
+- Get suggested queries based on your data
+- Ask questions in natural language
+- Use different query modes (vector, keyword, context)
+
+## 🎯 Extraction Modes
+
+### `"auto"` (Recommended)
+- Uses both simple and dynamic extraction
+- Best for most use cases
+- Automatically discovers schema
+
+### `"simple"`
+- Basic LLM-based extraction
+- Fast and reliable
+- Good for well-structured data
+
+### `"dynamic"`
+- Discovers schema automatically
+- Adapts to data structure
+- Best for complex, varied data
+
+### `"implicit"`
+- Uses embeddings for relationships
+- Good for unstructured text
+- Discovers implicit connections
+
+## 💡 Example Use Cases
+
+### E-commerce Data
+```python
+# config.py
+DATA_PATH = "ecommerce_data"
+FILE_EXTENSIONS = ['.csv']
+EXTRACTION_MODE = "dynamic"
 ```
 
-## Advanced Features
+**Automatic Discovery**: Products, Categories, Orders, Customers
+**Queries**: "What are the most popular products?", "Show me customer purchase patterns"
 
-### Dynamic Column Detection
-The system automatically detects column types in CSV data:
-- **Identifiers**: Primary keys, IDs
-- **Text Content**: Names, descriptions  
-- **Categories**: Classification fields
-- **Measurements**: Prices, dimensions
-- **Attributes**: Colors, sizes, features
+### Research Papers
+```python
+# config.py
+DATA_PATH = "research_papers"
+FILE_EXTENSIONS = ['.pdf', '.txt']
+EXTRACTION_MODE = "auto"
+```
 
-### Intelligent Query Parsing
-Natural language queries are parsed to extract:
-- **Product Information**: Names, features, categories
-- **Document References**: Manual types, specifications
-- **Relationship Context**: Compatibility, similarity
+**Automatic Discovery**: Authors, Topics, Citations, Institutions
+**Queries**: "What are the main research themes?", "Which authors collaborate most?"
 
-### Multi-Modal Embeddings
-Creates embeddings for:
-- **Database Rows**: "Product: HL Road Frame. Category: Road Frames. Price: $1431.50"
-- **JSON Tables**: "Technical specs. Document: Mountain Bike Manual. Tire Pressure: 30-50 PSI"
-- **Document Content**: Full-text PDF content with metadata
+### Mixed Data Sources
+```python
+# config.py
+DATA_PATH = "mixed_data"
+FILE_EXTENSIONS = None  # All supported files
+EXTRACTION_MODE = "auto"
+```
 
-## Contributing
+**Automatic Discovery**: Any entities and relationships in your data
+**Queries**: "Summarize the key information", "What patterns exist in this data?"
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+## 🔧 Advanced Configuration
 
-## License
+### Custom Processing
+The system automatically handles:
+- **CSV**: Converts rows to natural language descriptions
+- **JSON**: Processes nested objects and arrays
+- **Text/PDF**: Chunks and processes content
+- **Mixed encodings**: Tries multiple encodings automatically
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+### Query Modes
+- **Vector**: Semantic similarity search
+- **Keyword**: Exact term matching
+- **Context**: Relationship-aware queries
+- **Default**: General-purpose queries
+
+### Backends
+- **Simple**: In-memory graph (default)
+- **Neo4j**: Full graph database with Cypher support
+
+## 📈 Scaling for Large Data
+
+For large datasets:
+
+1. **Use Neo4j backend**:
+```python
+USE_NEO4J = True
+```
+
+2. **Process in chunks**:
+```python
+CHUNK_SIZE = 512
+NUM_WORKERS = 4
+```
+
+3. **Filter file types**:
+```python
+FILE_EXTENSIONS = ['.csv']  # Focus on specific types
+```
+
+## 🔍 Example Queries
+
+The system works with **any domain** and **any data structure**. Here are examples:
+
+### General Queries
+- "What are the main entities in this data?"
+- "What relationships exist between different entities?"
+- "Summarize the key patterns in this dataset"
+
+### Specific Queries (auto-discovered)
+- "Tell me about [entity type] entities"
+- "Show me [relationship type] relationships"
+- "What are the properties of [discovered entity]?"
+
+### Complex Analysis
+- "Analyze the patterns in this data"
+- "Explain the relationships between different components"
+- "What insights can you derive from this information?"
+
+## 🤝 Contributing
+
+This is a **general-purpose system** - it should work with any data type and domain. If you find data it doesn't handle well:
+
+1. Check the console output for processing errors
+2. Try different extraction modes
+3. Adjust chunk sizes for your content type
+4. Add custom processing for new file types
+
+## 📚 Key Files
+
+- `graph_builder.py`: Main graph building logic
+- `query_interface.py`: Interactive query system
+- `config.py`: All configuration options
+- `requirements.txt`: Dependencies
+- `data/`: Your data directory (customize path in config)
+
+## 🎯 Next Steps
+
+1. **Try it with your data**: Point `DATA_PATH` to your files
+2. **Experiment with modes**: Try different `EXTRACTION_MODE` values
+3. **Scale up**: Use Neo4j for larger datasets
+4. **Customize queries**: Add domain-specific query templates
+5. **Integrate**: Use the graph in your applications
+
+---
+
+**The beauty of this system**: You don't need to know your data structure ahead of time. Just point it at your data, and it will automatically discover the entities, relationships, and patterns that matter for your domain! 🎉 
